@@ -22,6 +22,24 @@ extends Node3D
 ## поэтому 16 арен превращаются в 32 источника опыта.
 @export var team_training: bool = true
 
+## Бегуны и громилы. Раньше было выключено, и напарник ни разу за обучение
+## не встречал ни того, ни другого - а игра включает разновидности всегда.
+## Тип ближайшего врага агент видит в наблюдениях, иначе отличить быстрого
+## хилого от медленного толстого по одному кадру он бы не смог.
+@export var variants_enabled: bool = true
+@export var runner_from_wave: int = 3
+@export var brute_from_wave: int = 5
+
+## Темп боя берётся из «Нормальной» сложности игры, а не из значений по
+## умолчанию в Arena.tscn: политику имеет смысл затачивать под тот режим,
+## в котором в неё будут играть.
+@export var first_wave_size: int = 3
+@export var wave_growth: int = 1
+@export var max_alive: int = 8
+@export var wave_delay: float = 2.5
+@export var potion_interval: float = 8.0
+@export var max_potions: int = 3
+
 const CONTROLLER := preload("res://scripts/rl/GladiatorAIController.gd")
 
 var arenas: Array[Arena] = []
@@ -54,6 +72,21 @@ func _build_arena(index: int) -> void:
 	arena.arena_seed = seed_base + index
 	arena.ally_enabled = team_training
 	arena.ally_local_policy = false   # управляет AIController, а не локальная политика
+
+	arena.variants_enabled = variants_enabled
+	arena.runner_from_wave = runner_from_wave
+	arena.brute_from_wave = brute_from_wave
+	arena.first_wave_size = first_wave_size
+	arena.wave_growth = wave_growth
+	arena.max_alive = max_alive
+	arena.wave_delay = wave_delay
+	arena.potion_interval = potion_interval
+	arena.max_potions = max_potions
+	# Комнат при обучении нет: волны идут бесконечно, эпизод заканчивает
+	# смерть бойца. Подъём напарника тоже выключен - лежачее состояние
+	# размыло бы границу эпизода.
+	arena.waves_in_room = 0
+	arena.revive_enabled = false
 
 	var col := index % grid_cols
 	var row := index / grid_cols

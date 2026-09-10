@@ -11,6 +11,15 @@ extends Node3D
 ##   * ошибку в наградах видно в обычном запуске игры, а не только в обучении.
 
 @export_group("Наблюдения")
+## Сколько чисел в наблюдении помимо двух лидаров: 7 своё состояние,
+## 6 ближайший враг, 2 своя скорость, 1 обстановка, 4 ближайшее зелье.
+##
+## Вынесено в константу не для красоты. Это же число нужно меню, чтобы
+## отличить устаревшую политику от подходящей, и раньше оно было переписано
+## там вторым экземпляром. Разъехавшись, две копии дали бы молчаливую
+## поломку: меню считало бы годной модель, которую движок не примет.
+const EXTRA_OBS := 25
+
 @export var lidar_rays: int = 16
 @export var lidar_range: float = 12.0
 @export var max_tracked_enemies: int = 8   ## для нормализации счётчика врагов
@@ -114,7 +123,7 @@ func _ready() -> void:
 	_arena = _find_arena()
 	_build_sensors()
 
-	_obs_size = lidar_rays * 2 + 23
+	_obs_size = observation_size_for(lidar_rays)
 	_obs.resize(_obs_size)
 
 	_connect_rewards()
@@ -408,7 +417,14 @@ func get_observation() -> Array[float]:
 	_obs[i] = _g.get_stun_ratio();            i += 1
 	_obs[i] = clampf(_g.action_lock / maxf(_g.sword_lock_time, 0.001), 0.0, 1.0); i += 1
 
-	# --- Ближайший враг (4) ---
+	# --- Ближайший враг (6) ---
+	#
+	# Тип врага здесь обязателен. Бегун вдвое слабее и в 1.75 раза быстрее
+	# обычного, громила - в 2.6 раза живучее и почти вдвое медленнее. Драться
+	# с ними надо по-разному, а сеть у нас без памяти и без стекирования
+	# кадров: по одному кадру видно только положение, но не скорость. Без
+	# явного признака агент физически не может отличить одного от другого и
+	# сходится к усреднённой тактике, проигрышной против обоих.
 	var basis_t := _g.global_transform.basis.transposed()
 	var nearest := _nearest_enemy()
 	if nearest != null:
@@ -420,7 +436,12 @@ func get_observation() -> Array[float]:
 		_obs[i] = -local.z;                                       i += 1   # вперёд
 		_obs[i] = clampf(1.0 - dist / lidar_range, 0.0, 1.0);     i += 1
 		_obs[i] = 1.0 if nearest.state == Zombie.State.WINDUP else 0.0; i += 1
+		# Обычный зомби - это оба нуля, отдельного признака ему не нужно.
+		_obs[i] = 1.0 if nearest.variant == Zombie.Variant.RUNNER else 0.0; i += 1
+		_obs[i] = 1.0 if nearest.variant == Zombie.Variant.BRUTE else 0.0;  i += 1
 	else:
+		_obs[i] = 0.0; i += 1
+		_obs[i] = 0.0; i += 1
 		_obs[i] = 0.0; i += 1
 		_obs[i] = 0.0; i += 1
 		_obs[i] = 0.0; i += 1
@@ -459,6 +480,12 @@ func get_observation() -> Array[float]:
 
 func get_observation_size() -> int:
 	return _obs_size
+
+
+## Размер наблюдения по числу лучей лидара, без создания самого мозга.
+## Нужен меню, чтобы отличить устаревшую политику от подходящей.
+static func observation_size_for(rays: int) -> int:
+	return rays * 2 + EXTRA_OBS
 
 
 func _nearest_enemy() -> Zombie:

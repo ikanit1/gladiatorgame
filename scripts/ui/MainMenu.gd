@@ -280,11 +280,15 @@ func _load_into_ui() -> void:
 	_update_hint()
 
 
-## Сколько наблюдений отдаёт нынешняя игра. Считаем по той же формуле,
-## что и GladiatorBrain, чтобы не поднимать ради этого целую арену.
+## Сколько наблюдений отдаёт нынешняя игра.
+##
+## Формула живёт в самом GladiatorBrain: здесь раньше стояла её копия с
+## числом 23, и после добавления признака типа врага копия разъехалась бы
+## с оригиналом. Меню тогда молча одобрило бы политику, которую движок
+## не примет.
 func _expected_obs() -> int:
 	var brain := GladiatorBrain.new()
-	var n := brain.lidar_rays * 2 + 23
+	var n := GladiatorBrain.observation_size_for(brain.lidar_rays)
 	brain.free()
 	return n
 

@@ -823,16 +823,23 @@ func _zombie_cooldown_scale() -> float:
 
 ## Чем дальше волна, тем разнообразнее враги. Первые волны намеренно
 ## однородные: иначе игрок не успевает понять базовые правила боя.
+##
+## ПОДВОХ: считать надо по run_wave_index - сквозному счётчику волн за
+## забег, а не по wave_index, который сбрасывается в каждой комнате.
+## Комната даёт 2-4 волны, порог громилы - пятая: с wave_index громилы
+## не появлялись в игре ВООБЩЕ, а бегуны - только в последней волне
+## четырёхволновой комнаты. Масштабирование угрозы рядом всегда считало
+## по run_wave_index, так что расходились именно эти два порога.
 func _pick_variant() -> int:
 	if not variants_enabled:
 		return Zombie.Variant.NORMAL
 
 	var brute := 0.0
-	if wave_index >= brute_from_wave:
-		brute = minf(0.10 + 0.03 * float(wave_index - brute_from_wave), 0.30)
+	if run_wave_index >= brute_from_wave:
+		brute = minf(0.10 + 0.03 * float(run_wave_index - brute_from_wave), 0.30)
 	var runner := 0.0
-	if wave_index >= runner_from_wave:
-		runner = minf(0.18 + 0.03 * float(wave_index - runner_from_wave), 0.38)
+	if run_wave_index >= runner_from_wave:
+		runner = minf(0.18 + 0.03 * float(run_wave_index - runner_from_wave), 0.38)
 
 	var r := _rng.randf()
 	if r < brute:
