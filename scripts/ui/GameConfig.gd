@@ -12,7 +12,7 @@ const MODELS_DIR := "res://models"
 enum Difficulty { EASY, NORMAL, HARD }
 
 var coop: bool = true
-var ally_policy: String = "res://models/gladiator_team.policy"
+var ally_policy: String = "res://models/gladiator_team_v5.policy"
 var difficulty: int = Difficulty.NORMAL
 var master_volume: float = 0.8
 var show_ai_debug: bool = false

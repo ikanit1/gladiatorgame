@@ -44,7 +44,7 @@ signal room_cleared(room_index: int)
 ## и зелья, но не напарника. Иначе пришлось бы переобучать модель.
 @export var ally_enabled: bool = false
 @export var gladiator_scene: PackedScene
-@export_file("*.policy") var ally_policy: String = "res://models/gladiator_team.policy"
+@export_file("*.policy") var ally_policy: String = "res://models/gladiator_team_v5.policy"
 ## false - напарник ждёт внешнего управления (AIController при обучении),
 ## LocalAgent к нему не цепляется.
 @export var ally_local_policy: bool = true
@@ -57,8 +57,10 @@ signal room_cleared(room_index: int)
 @export var exit_radius: float = 2.4
 
 @export_group("Разновидности зомби")
-## Бегуны и громилы. В обучении выключено: политика обучалась на базовом
-## противнике, и менять состав врагов под ней некорректно.
+## Бегуны и громилы. Политика с версии gladiator_team_v5 обучена против всех
+## трёх типов и видит тип ближайшего врага в наблюдениях, так что включать
+## их безопасно. По умолчанию false ради сцен-заглушек и ручной отладки;
+## игра и обучение выставляют флаг явно.
 @export var variants_enabled: bool = false
 @export var runner_from_wave: int = 3
 @export var brute_from_wave: int = 5

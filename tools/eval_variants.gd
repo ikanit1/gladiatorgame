@@ -37,8 +37,29 @@ var _names := {0: "обычные", 1: "бегуны", 2: "громилы"}
 
 
 func _ready() -> void:
-	if not ResourceLoader.exists(POLICY):
+	# Именно FileAccess, а не ResourceLoader: .policy - сырой бинарник со
+	# своим заголовком, Godot его не импортирует, и ResourceLoader.exists
+	# на существующий файл отвечает false.
+	if not FileAccess.file_exists(POLICY):
 		print("нет файла политики: " + POLICY)
+		get_tree().quit(1)
+		return
+
+	# Сначала самопроверка прямого прохода. В файле политики лежат
+	# контрольные пары obs->action, снятые с PyTorch при выгрузке. Если
+	# реализация на GDScript разойдётся с ними, все замеры поведения ниже
+	# будут описывать не ту сеть, что обучалась, - и разница между типами
+	# врагов оказалась бы артефактом арифметики, а не тактикой агента.
+	var runner := PolicyRunner.new()
+	if not runner.load_from(POLICY):
+		print("политика не загрузилась")
+		get_tree().quit(1)
+		return
+	var check := runner.verify()
+	print("самопроверка сети: пар %d, максимальное расхождение %.9f" % [
+		check["samples"], check["max_diff"]])
+	if not bool(check.get("ok", check["max_diff"] < 1.0e-3)):
+		print("ПРОВАЛ: прямой проход на GDScript расходится с PyTorch")
 		get_tree().quit(1)
 		return
 
@@ -75,7 +96,10 @@ func _run_one(variant: int) -> void:
 	agent.policy_path = POLICY
 	g.add_child(agent)
 	await get_tree().physics_frame
-	if agent.status != "":
+	# status у LocalAgent - человекочитаемое состояние, а не только ошибка:
+	# при успехе там лежит «политика загружена: ...». Признак беды - не
+	# непустая строка, а отсутствие готовности действовать.
+	if not agent.ready_to_act:
 		print("политика не запустилась: " + agent.status)
 
 	g.dealt_damage.connect(func(a, _t2, _ty): _dealt += a)
