@@ -3,92 +3,166 @@ extends Control
 ## Главное меню. Интерфейс собирается кодом, а не в .tscn: так вся раскладка
 ## и все подписи лежат в одном файле, который можно прочитать сверху вниз,
 ## а не собирать по кускам из дерева узлов.
+##
+## Оформление берётся из UITheme - палитра, рамки и кнопки общие с игровым
+## экраном, чтобы меню и HUD не разъезжались при правках.
 
 const GAME_SCENE := "res://scenes/Game.tscn"
 
-const BG := Color("#12141a")
-const PANEL := Color("#1b1f27")
-const FG := Color("#e6e9ef")
-const DIM := Color("#8d95a5")
-const ACCENT := Color("#d99a3c")
-
-var _settings_box: PanelContainer
+var _menu_page: VBoxContainer
+var _settings_page: Control
 var _policy_option: OptionButton
 var _policy_paths: Array[String] = []
 var _coop_check: CheckButton
 var _diff_option: OptionButton
 var _volume_slider: HSlider
 var _hint: Label
+var _play_button: Button
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	theme = UITheme.theme()
 	_build()
 	_load_into_ui()
+	# Меню открывается и после выхода из боя, где курсор был захвачен
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_play_button.grab_focus()
 
 
+## Меню и настройки - две страницы, а не одна растущая колонка.
+##
+## Раньше панель настроек раскрывалась под кнопками, и суммарная высота
+## переваливала за экран: заголовок уезжал вверх, таблица управления - вниз.
+## Раскладка, которая ломается при 648 пикселях по вертикали, неприемлема:
+## это обычная высота окна на ноутбуке.
 func _build() -> void:
-	var bg := ColorRect.new()
-	bg.color = BG
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	_build_background()
 
-	var center := VBoxContainer.new()
-	center.set_anchors_preset(Control.PRESET_CENTER)
-	center.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	center.grow_vertical = Control.GROW_DIRECTION_BOTH
-	center.custom_minimum_size = Vector2(460, 0)
-	center.add_theme_constant_override("separation", 10)
-	add_child(center)
+	_menu_page = VBoxContainer.new()
+	_menu_page.set_anchors_preset(Control.PRESET_CENTER)
+	_menu_page.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_menu_page.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_menu_page.custom_minimum_size = Vector2(460, 0)
+	_menu_page.add_theme_constant_override("separation", 10)
+	add_child(_menu_page)
 
-	var title := Label.new()
-	title.text = "AIFIGHT"
+	var emblem := UITheme.icon_rect("emblem", 120, UITheme.ACCENT)
+	emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_menu_page.add_child(emblem)
+
+	var title := UITheme.label("AIFIGHT", 58, UITheme.ACCENT, 6)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 54)
-	title.add_theme_color_override("font_color", ACCENT)
-	center.add_child(title)
+	_menu_page.add_child(title)
 
-	var sub := Label.new()
-	sub.text = "арена гладиатора"
+	var sub := UITheme.label("арена гладиатора", 15, UITheme.DIM, 3)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 15)
-	sub.add_theme_color_override("font_color", DIM)
-	center.add_child(sub)
+	_menu_page.add_child(sub)
 
-	center.add_child(_spacer(18))
-	center.add_child(_button("Играть", _on_play, true))
-	center.add_child(_button("Настройки", _on_toggle_settings))
-	center.add_child(_button("Выход", _on_quit))
+	_menu_page.add_child(_spacer(20))
+	_play_button = _button("Играть", _on_play, true)
+	_menu_page.add_child(_play_button)
+	_menu_page.add_child(_button("Настройки", _on_toggle_settings))
+	_menu_page.add_child(_button("Выход", _on_quit))
 
-	_settings_box = _build_settings()
-	_settings_box.visible = false
-	center.add_child(_settings_box)
-
-	_hint = Label.new()
+	_hint = UITheme.label("", 12, UITheme.DIM, 3)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_hint.add_theme_font_size_override("font_size", 12)
-	_hint.add_theme_color_override("font_color", DIM)
-	center.add_child(_spacer(8))
-	center.add_child(_hint)
+	_menu_page.add_child(_spacer(8))
+	_menu_page.add_child(_hint)
+
+	_settings_page = _build_settings()
+	_settings_page.visible = false
+	add_child(_settings_page)
 
 
-func _build_settings() -> PanelContainer:
+## Фон: арт арены плюс две затемняющие подложки.
+##
+## Одной сплошной пелены мало. Арт светлый по краям и тёмный в центре, поэтому
+## сверху идёт общее приглушение, а под самой колонкой меню - вертикальный
+## градиент: без него подписи вроде «арена гладиатора» тонули бы в песке.
+func _build_background() -> void:
+	var art := TextureRect.new()
+	art.set_anchors_preset(Control.PRESET_FULL_RECT)
+	art.texture = load(UITheme.MENU_BG) if ResourceLoader.exists(UITheme.MENU_BG) else null
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(art)
+
+	if art.texture == null:
+		art.queue_free()
+		var flat := ColorRect.new()
+		flat.set_anchors_preset(Control.PRESET_FULL_RECT)
+		flat.color = UITheme.BG
+		add_child(flat)
+		return
+
+	var scrim := ColorRect.new()
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.color = Color(UITheme.BG.r, UITheme.BG.g, UITheme.BG.b, 0.45)
+	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(scrim)
+
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	grad.colors = PackedColorArray([
+		Color(0, 0, 0, 0.0), Color(0, 0, 0, 0.62), Color(0, 0, 0, 0.0)])
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill_from = Vector2(0.5, 0.0)
+	gt.fill_to = Vector2(0.5, 1.0)
+
+	var band := TextureRect.new()
+	band.set_anchors_preset(Control.PRESET_FULL_RECT)
+	band.texture = gt
+	band.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	band.stretch_mode = TextureRect.STRETCH_SCALE
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(band)
+
+
+func _build_settings() -> Control:
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	# Ширина фиксированная, высота - весь экран минус поля. Панель поэтому
+	# не может перерасти окно: длинный список уезжает в прокрутку внутри,
+	# а не выталкивает заголовок за край экрана.
 	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = PANEL
-	style.set_corner_radius_all(8)
-	style.set_content_margin_all(16)
-	panel.add_theme_stylebox_override("panel", style)
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.0
+	panel.anchor_bottom = 1.0
+	panel.offset_left = -250.0
+	panel.offset_right = 250.0
+	panel.offset_top = 44.0
+	panel.offset_bottom = -44.0
+	panel.add_theme_stylebox_override("panel", UITheme.panel_style(0.94))
+	page.add_child(panel)
+
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 12)
+	panel.add_child(outer)
+
+	var head := UITheme.label("НАСТРОЙКИ", 20, UITheme.ACCENT, 0)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	outer.add_child(head)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	outer.add_child(scroll)
 
 	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_theme_constant_override("separation", 12)
-	panel.add_child(box)
+	scroll.add_child(box)
 
 	# --- Напарник ---
 	_coop_check = CheckButton.new()
 	_coop_check.text = "Играть с ИИ-напарником"
-	_coop_check.add_theme_color_override("font_color", FG)
+	_coop_check.add_theme_color_override("font_color", UITheme.FG)
 	_coop_check.toggled.connect(_on_coop_toggled)
 	box.add_child(_coop_check)
 
@@ -115,20 +189,38 @@ func _build_settings() -> PanelContainer:
 	_volume_slider.value_changed.connect(_on_volume_changed)
 	box.add_child(_volume_slider)
 
-	var controls := Label.new()
-	controls.text = "\n".join([
-		"Управление:",
-		"WASD — движение относительно камеры,   мышь — обзор",
-		"ЛКМ / Space — меч,   E — пинок,   ПКМ / Shift — щит",
-		"со щитом: тело смотрит по камере, W/S — шаг вперёд и назад",
-		"F — поднять напарника,   Esc — пауза",
-	])
-	controls.add_theme_font_size_override("font_size", 12)
-	controls.add_theme_color_override("font_color", DIM)
 	box.add_child(_spacer(4))
-	box.add_child(controls)
+	box.add_child(_caption("Управление"))
+	box.add_child(_controls_table())
 
-	return panel
+	outer.add_child(_button("Назад", _on_toggle_settings))
+	return page
+
+
+## Раскладка управления таблицей, а не одной простынёй текста: клавиша и
+## её действие выровнены в две колонки и читаются с одного взгляда.
+func _controls_table() -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 4)
+
+	var rows := [
+		["WASD", "движение относительно камеры"],
+		["мышь", "обзор"],
+		["ЛКМ / Space", "меч"],
+		["ПКМ / Shift", "щит"],
+		["E", "пинок"],
+		["F", "поднять напарника"],
+		["Esc", "пауза"],
+	]
+	for r in rows:
+		var key := UITheme.label(r[0], 12, UITheme.ACCENT, 0)
+		key.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		key.custom_minimum_size = Vector2(96, 0)
+		grid.add_child(key)
+		grid.add_child(UITheme.label(r[1], 12, UITheme.DIM, 0))
+	return grid
 
 
 # ------------------------------------------------------------------
@@ -140,27 +232,14 @@ func _button(text: String, handler: Callable, primary: bool = false) -> Button:
 	b.text = text
 	b.custom_minimum_size = Vector2(0, 46)
 	b.add_theme_font_size_override("font_size", 18)
-
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = ACCENT if primary else PANEL
-	normal.set_corner_radius_all(6)
-	var hover := normal.duplicate() as StyleBoxFlat
-	hover.bg_color = normal.bg_color.lightened(0.12)
-
-	b.add_theme_stylebox_override("normal", normal)
-	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", hover)
-	b.add_theme_color_override("font_color", Color("#1a1a1a") if primary else FG)
+	if primary:
+		UITheme.make_primary(b)
 	b.pressed.connect(handler)
 	return b
 
 
 func _caption(text: String) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_font_size_override("font_size", 12)
-	l.add_theme_color_override("font_color", DIM)
-	return l
+	return UITheme.label(text, 12, UITheme.DIM, 0)
 
 
 func _spacer(h: int) -> Control:
@@ -231,7 +310,18 @@ func _on_play() -> void:
 
 
 func _on_toggle_settings() -> void:
-	_settings_box.visible = not _settings_box.visible
+	var open := not _settings_page.visible
+	_settings_page.visible = open
+	_menu_page.visible = not open
+	if not open:
+		_play_button.grab_focus()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# Esc из настроек возвращает в меню, а не выходит из игры
+	if _settings_page.visible and event.is_action_pressed("ui_cancel"):
+		_on_toggle_settings()
+		get_viewport().set_input_as_handled()
 
 
 func _on_quit() -> void:

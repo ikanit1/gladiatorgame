@@ -1,15 +1,17 @@
 extends Node3D
 
 const PV := preload("res://scripts/ProceduralVisuals.gd")
+const Geometry := preload("res://scripts/CharacterGeometry.gd")
+const Motion := preload("res://scripts/CharacterMotion.gd")
 
 ## Визуал зомби. Та же схема, что и у гладиатора: поза целиком выводится
 ## из состояния Zombie.gd, ни одной аллокации за кадр, ветка отключаема целиком.
 
 @export_group("Походка")
 @export var walk_cycle_speed: float = 3.4
-@export var leg_swing_deg: float = 30.0
+@export var stride_length: float = 0.25
 @export var shamble_deg: float = 5.0       ## заваливание корпуса вбок при шаге
-@export var bob_height: float = 0.03
+@export var bob_height: float = 0.008
 
 @export_group("Реакции")
 @export var flash_color: Color = Color(1.0, 0.35, 0.3)
@@ -17,11 +19,11 @@ const PV := preload("res://scripts/ProceduralVisuals.gd")
 @export var twitch_strength: float = 1.0
 
 # Базовая поза: сутулый, руки вытянуты вперёд
-const REST_TORSO := Vector3(14.0, 0.0, 0.0)
-const REST_ARM_R := Vector3(-62.0, 0.0, -9.0)
-const REST_ARM_L := Vector3(-62.0, 0.0, 9.0)
-const WINDUP_ARM := Vector3(-118.0, 0.0, 0.0)
-const STRIKE_ARM := Vector3(-22.0, 0.0, 0.0)
+const REST_TORSO := Vector3(-12.0, 0.0, 0.0)
+const REST_ARM_R := Vector3(22.0, 0.0, -12.0)
+const REST_ARM_L := Vector3(32.0, 0.0, 10.0)
+const WINDUP_ARM := Vector3(108.0, -10.0, -17.0)
+const STRIKE_ARM := Vector3(62.0, 14.0, -10.0)
 
 @onready var _pivot: Node3D = $Body
 @onready var _torso: Node3D = $Body/Torso
@@ -37,6 +39,13 @@ const STRIKE_ARM := Vector3(-22.0, 0.0, 0.0)
 const SND_GROWL := preload("res://audio/zombie_growl.wav")
 const SND_DIE := preload("res://audio/zombie_die.wav")
 
+var _elbow_r: Node3D
+var _elbow_l: Node3D
+var _knee_r: Node3D
+var _knee_l: Node3D
+var _move_amount := 0.0
+var _local_velocity := Vector3.ZERO
+var _brute_growth: Node3D
 var _z: Zombie
 
 var _walk_phase: float = 0.0
@@ -66,6 +75,11 @@ func _ready() -> void:
 		set_process(false)
 		return
 
+	Geometry.zombie(self)
+	_elbow_r = _arm_r.get_node("Elbow")
+	_elbow_l = _arm_l.get_node("Elbow")
+	_knee_r = _leg_r.get_node("Knee")
+	_knee_l = _leg_l.get_node("Knee")
 	_create_signature_details()
 	_collect_meshes($Body)
 	_flash_mat = StandardMaterial3D.new()
@@ -82,52 +96,23 @@ func _ready() -> void:
 	_apply_rest_pose()
 
 
-## Дополнительные детали превращают силуэт из набора кубов в узнаваемого
-## мутировавшего бойца: глаза, рёбра, позвоночник, свисающие лоскуты и слизь.
-## Всё создаётся один раз, поэтому пул из зомби не получает лишних аллокаций.
+## Глаза, подвижные лоскуты и костяные наросты тяжёлой разновидности.
 func _create_signature_details() -> void:
-	_eye_mat = PV.material(Color(1.0, 0.06, 0.015), 0.0, 0.2,
-		Color(1.0, 0.015, 0.005), 6.0)
-	var bone := PV.material(Color(0.56, 0.65, 0.43), 0.0, 0.78)
-	var dark_bone := PV.material(Color(0.12, 0.16, 0.10), 0.0, 0.9)
-	var rag := PV.material(Color(0.15, 0.055, 0.045), 0.0, 0.95)
-	var slime := PV.material(Color(0.22, 0.55, 0.16), 0.0, 0.35,
-		Color(0.12, 0.65, 0.05), 1.4)
-
-	_eye_l = PV.sphere(_head, "EyeL", 0.034,
-		Vector3(-0.075, 0.025, -0.135), _eye_mat, 0.055)
-	_eye_r = PV.sphere(_head, "EyeR", 0.034,
-		Vector3(0.075, 0.025, -0.135), _eye_mat, 0.055)
-
-	for i in 3:
-		var rib_y := 0.02 + float(i) * 0.105
-		PV.box(_torso, "RibL%d" % i,
-			Vector3(0.16, 0.035, 0.035), Vector3(-0.12, rib_y, -0.18), bone)
-		PV.box(_torso, "RibR%d" % i,
-			Vector3(0.16, 0.035, 0.035), Vector3(0.12, rib_y, -0.18), bone)
-		PV.sphere(_torso, "Spine%d" % i, 0.04,
-			Vector3(0.0, rib_y + 0.03, 0.18), dark_bone, 0.075)
-
-	var rag_root := Node3D.new()
-	rag_root.name = "HangingRags"
-	rag_root.position = Vector3(0.0, 0.86, 0.14)
-	_pivot.add_child(rag_root)
-	_rag_a = _rag_segment(rag_root, "RagA", Vector3(-0.22, -0.28, 0.0),
-		Vector3(0.22, 0.52, 0.045), rag)
-	_rag_b = _rag_segment(rag_root, "RagB", Vector3(0.18, -0.34, 0.025),
-		Vector3(0.18, 0.62, 0.04), rag)
-	PV.sphere(rag_root, "Slime", 0.052,
-		Vector3(-0.04, -0.56, -0.01), slime, 0.10)
-
-
-func _rag_segment(parent: Node3D, segment_name: String, pos: Vector3,
-		size: Vector3, material: Material) -> Node3D:
-	var segment := Node3D.new()
-	segment.name = segment_name
-	segment.position = pos
-	parent.add_child(segment)
-	PV.box(segment, "Cloth", size, Vector3.ZERO, material)
-	return segment
+	_eye_mat = PV.material(Color(0.8, 0.28, 0.035), 0.0, 0.5,
+		Color(0.9, 0.16, 0.015), 1.2)
+	_eye_l = Geometry.ellipsoid(_head, "EyeL", Vector3(-0.062, 0.025, -0.105),
+		Vector3(0.016, 0.011, 0.009), _eye_mat)
+	_eye_r = Geometry.ellipsoid(_head, "EyeR", Vector3(0.062, 0.025, -0.105),
+		Vector3(0.016, 0.011, 0.009), _eye_mat)
+	_rag_a = _pivot.get_node("Rag2")
+	_rag_b = _pivot.get_node("Rag7")
+	_brute_growth = Geometry.joint(_torso, "BruteGrowth", Vector3.ZERO)
+	var bone := Geometry.material("bone", Color("aba58a"))
+	for side in [-1.0, 1.0]:
+		for i in 3:
+			Geometry.ellipsoid(_brute_growth, "BonePlate", Vector3(side * (0.22 + i * 0.026),
+				0.25 - i * 0.06, 0.02), Vector3(0.08, 0.075, 0.12), bone)
+	_brute_growth.hide()
 
 
 func _process(delta: float) -> void:
@@ -145,7 +130,7 @@ func _process(delta: float) -> void:
 
 	_update_growl(delta)
 
-	_bar.visible = true
+	# Видимостью полосы распоряжается она сама: у целого зомби её не видно
 	_bar.set_ratio(_z.health / maxf(_z.max_health, 0.001))
 
 	_animate_locomotion(delta)
@@ -186,96 +171,99 @@ func _apply_rest_pose() -> void:
 	_arm_l.rotation_degrees = REST_ARM_L
 	_leg_l.rotation = Vector3.ZERO
 	_leg_r.rotation = Vector3.ZERO
+	_knee_l.rotation = Vector3.ZERO
+	_knee_r.rotation = Vector3.ZERO
+	_knee_l.get_node("Foot").rotation = Vector3.ZERO
+	_knee_r.get_node("Foot").rotation = Vector3.ZERO
+	_elbow_r.rotation_degrees = Vector3(18, 0, 0)
+	_elbow_l.rotation_degrees = Vector3(27, 0, 0)
 	_head.rotation = Vector3.ZERO
 	_jaw.rotation = Vector3.ZERO
 	_jaw.scale = Vector3.ONE
 	if _rag_a != null:
-		_rag_a.rotation = Vector3.ZERO
-		_rag_b.rotation = Vector3.ZERO
+		_rag_a.rotation.x = 0.0
+		_rag_a.rotation.z = 0.0
+		_rag_b.rotation.x = 0.0
+		_rag_b.rotation.z = 0.0
 
 
 func _animate_locomotion(delta: float) -> void:
-	var speed := Vector2(_z.velocity.x, _z.velocity.z).length()
-	if speed > 0.1:
-		_walk_phase += delta * speed * walk_cycle_speed
-
-	var amp := clampf(speed / maxf(_z.move_speed, 0.001), 0.0, 1.0)
-	var swing := sin(_walk_phase) * deg_to_rad(leg_swing_deg) * amp
-
-	_leg_l.rotation.x = swing
-	_leg_r.rotation.x = -swing
-	_pivot.position.y = absf(sin(_walk_phase)) * bob_height * amp
-	# Заваливание вбок - делает походку "неживой"
-	_pivot.rotation.z = deg_to_rad(shamble_deg) * sin(_walk_phase) * amp
-	_arm_r.rotation_degrees.z = REST_ARM_R.z + sin(_walk_phase * 0.9) * 8.0 * amp
-	_arm_l.rotation_degrees.z = REST_ARM_L.z - sin(_walk_phase * 0.9) * 8.0 * amp
-	_head.rotation_degrees.y = sin(_walk_phase * 0.45) * 5.0 * amp
+	var local := _z.global_basis.orthonormalized().inverse() * _z.velocity
+	local.y = 0
+	# Knockback is a slide, not a running animation.
+	if _z.state == Zombie.State.STAGGER:
+		local = Vector3.ZERO
+	_local_velocity = _local_velocity.lerp(local, Motion.weight(delta))
+	var speed := _local_velocity.length()
+	_move_amount = lerpf(_move_amount, clampf(speed / maxf(_z.move_speed, 0.1), 0, 1), Motion.weight(delta))
+	if speed > 0.05:
+		_walk_phase = fmod(_walk_phase + delta * speed * walk_cycle_speed, TAU)
+	var direction := _local_velocity.normalized() if speed > 0.05 else Vector3.FORWARD
+	_pivot.position.y = sin(_walk_phase * 2.0) * bob_height * _move_amount
+	_pivot.rotation = Vector3(0, 0, deg_to_rad(shamble_deg) * sin(_walk_phase) * _move_amount * 0.45)
+	Motion.leg(_leg_l, _knee_l, _walk_phase, _move_amount, direction, 0.38, 0.34, _pivot.position.y, 1.0, stride_length)
+	Motion.leg(_leg_r, _knee_r, _walk_phase + PI, _move_amount, direction, 0.38, 0.34, _pivot.position.y,
+		1.0 if _z.variant == Zombie.Variant.RUNNER else 0.55, stride_length)
+	_head.rotation_degrees.y = sin(_walk_phase) * 3.0 * _move_amount
 
 
 func _animate_arms(delta: float) -> void:
-	var want: float = 0.0
 	var target_r := REST_ARM_R
 	var target_l := REST_ARM_L
-	var head_deg := 0.0
-	var jaw_open := 0.0
-
+	var elbow := 18.0
+	var torso := REST_TORSO.x
+	var head := 0.0
+	var jaw := 3.0
+	_arm_blend = 0.0
 	match _z.state:
 		Zombie.State.WINDUP:
-			want = 1.0
-			target_r = WINDUP_ARM
-			target_l = WINDUP_ARM
-			head_deg = -18.0     # запрокидывает голову перед укусом
-			jaw_open = 28.0
+			var progress := clampf(1.0 - _z._timer / maxf(_z.attack_windup, 0.01), 0, 1)
+			var prepare := smoothstep(0.0, 0.72, progress)
+			var strike := smoothstep(0.72, 1.0, progress)
+			target_r = REST_ARM_R.lerp(WINDUP_ARM, prepare).lerp(STRIKE_ARM, strike)
+			target_l = REST_ARM_L.lerp(Vector3(95, 10, 19), prepare).lerp(Vector3(55, -8, 12), strike)
+			elbow = lerpf(18, 58, prepare) * (1.0 - strike * 0.7)
+			torso = lerpf(REST_TORSO.x, -3, prepare) - strike * 21
+			head = -12 * prepare + strike * 20
+			jaw = 3 + prepare * 19 - strike * 8
+			_arm_blend = prepare
 		Zombie.State.RECOVER:
-			want = 1.0
-			target_r = STRIKE_ARM
-			target_l = STRIKE_ARM
-			head_deg = 12.0
-			jaw_open = 14.0
-
-	# Замах поднимается плавно, удар должен быть резким
-	var rate := 9.0 if _z.state == Zombie.State.WINDUP else 26.0
-	_arm_blend = move_toward(_arm_blend, want, delta * rate)
-
-	_arm_r.rotation_degrees = REST_ARM_R.lerp(target_r, _arm_blend)
-	_arm_l.rotation_degrees = REST_ARM_L.lerp(target_l, _arm_blend)
-	_head.rotation_degrees.x = lerpf(0.0, head_deg, _arm_blend)
-	_torso.rotation_degrees.x = REST_TORSO.x + lerpf(0.0, -10.0, _arm_blend)
-	_jaw.rotation_degrees.x = jaw_open * _arm_blend
-	_jaw.scale = Vector3.ONE * (1.0 + _arm_blend * 0.08)
-	_attack_pulse = maxf(_attack_pulse, _arm_blend)
+			var recovery := smoothstep(0, 1, 1.0 - _z._timer / maxf(_z.attack_recover, 0.01))
+			target_r = STRIKE_ARM.lerp(REST_ARM_R, recovery)
+			target_l = Vector3(55, -8, 12).lerp(REST_ARM_L, recovery)
+			elbow = lerpf(17.4, 18, recovery)
+			torso = lerpf(-24, REST_TORSO.x, recovery)
+			head = lerpf(8, 0, recovery)
+			jaw = lerpf(14, 3, recovery)
+			_arm_blend = 1.0 - recovery
+	var blend := Motion.weight(delta, 22.0)
+	_arm_r.rotation_degrees = _arm_r.rotation_degrees.lerp(target_r, blend)
+	_arm_l.rotation_degrees = _arm_l.rotation_degrees.lerp(target_l, blend)
+	_elbow_r.rotation_degrees.x = lerpf(_elbow_r.rotation_degrees.x, elbow, blend)
+	_elbow_l.rotation_degrees.x = lerpf(_elbow_l.rotation_degrees.x, elbow + 9 * (1 - _arm_blend), blend)
+	_head.rotation_degrees.x = lerpf(_head.rotation_degrees.x, head, blend)
+	_torso.rotation_degrees.x = lerpf(_torso.rotation_degrees.x, torso, blend)
+	_jaw.rotation_degrees.x = -jaw
+	_attack_pulse = _arm_blend
 
 
 func _animate_stagger(delta: float) -> void:
 	if _z.state != Zombie.State.STAGGER:
 		_stagger_phase = 0.0
 		return
+	_stagger_phase += delta
+	var shake := exp(-_stagger_phase * 7.0)
+	_pivot.rotation.z += deg_to_rad(8.0) * sin(_stagger_phase * 24) * shake
+	_torso.rotation_degrees.x = lerpf(_torso.rotation_degrees.x, 8.0, Motion.weight(delta))
+	_head.rotation_degrees.y = sin(_stagger_phase * 17.0) * 7.0 * shake
 
-	_stagger_phase += delta * 18.0
-	_pivot.rotation.z += deg_to_rad(11.0) * sin(_stagger_phase)
-	_torso.rotation_degrees.x = REST_TORSO.x - 22.0   # отброшен назад
-	_head.rotation_degrees.y = sin(_stagger_phase * 0.7) * 12.0
 
-
-func _animate_secondary_motion(_delta: float) -> void:
-	# Голова и глаза слегка живут сами по себе, а лоскуты реагируют на скорость.
-	var twitch := sin(_idle_phase * 2.7) * 2.5 * twitch_strength
-	_head.rotation_degrees.z = twitch
-	var speed := Vector2(_z.velocity.x, _z.velocity.z).length()
-	var wind := clampf(speed / maxf(_z.move_speed, 0.001), 0.0, 1.0)
-	var rag_wave := sin(_walk_phase * 0.75 + _idle_phase * 0.4) * (0.08 + wind * 0.16)
-	if _rag_a != null:
-		_rag_a.rotation_degrees.x = rag_wave
-		_rag_a.rotation_degrees.z = -rag_wave * 0.6
-		_rag_b.rotation_degrees.x = rag_wave * 1.35
-		_rag_b.rotation_degrees.z = rag_wave * 0.8
-	if _z.state != Zombie.State.WINDUP and _z.state != Zombie.State.RECOVER:
-		_arm_r.rotation_degrees.z += sin(_walk_phase * 0.9) * 7.0 * wind
-		_arm_l.rotation_degrees.z -= sin(_walk_phase * 0.9) * 7.0 * wind
-	if _eye_l != null:
-		var eye_scale := 1.0 + sin(_idle_phase * 3.1) * 0.12 + _attack_pulse * 0.22
-		_eye_l.scale = Vector3.ONE * eye_scale
-		_eye_r.scale = Vector3.ONE * eye_scale
+func _animate_secondary_motion(delta: float) -> void:
+	_head.rotation_degrees.z = sin(_idle_phase * 2.7) * 1.5 * twitch_strength
+	var wave := sin(_walk_phase + _idle_phase * 0.4) * (1.0 + _move_amount * 5.0)
+	_rag_a.rotation_degrees.x = lerpf(_rag_a.rotation_degrees.x, wave, Motion.weight(delta, 8))
+	_rag_b.rotation_degrees.x = lerpf(_rag_b.rotation_degrees.x, -wave * 0.8, Motion.weight(delta, 8))
+	_eye_mat.emission_energy_multiplier = 1.2 + _attack_pulse * 0.6
 
 
 func _animate_death(delta: float) -> void:
@@ -285,9 +273,9 @@ func _animate_death(delta: float) -> void:
 
 	_pivot.rotation.x = deg_to_rad(-82.0) * k
 	_pivot.rotation.z = deg_to_rad(14.0) * k
-	_pivot.position.y = -0.35 * k
-	_arm_r.rotation_degrees = REST_ARM_R.lerp(Vector3(-8.0, 0.0, -30.0), k)
-	_arm_l.rotation_degrees = REST_ARM_L.lerp(Vector3(-8.0, 0.0, 30.0), k)
+	_pivot.position.y = 0.22 * k
+	_arm_r.rotation_degrees = REST_ARM_R.lerp(Vector3(8.0, 0.0, -30.0), k)
+	_arm_l.rotation_degrees = REST_ARM_L.lerp(Vector3(8.0, 0.0, 30.0), k)
 
 
 func _apply_flash() -> void:
@@ -314,15 +302,16 @@ func _on_damaged(_amount: float) -> void:
 ## Разновидность читается из тела при каждом появлении: пул переиспользует
 ## один и тот же узел под разные типы зомби.
 func _apply_variant() -> void:
+	_brute_growth.visible = _z.variant == Zombie.Variant.BRUTE
 	match _z.variant:
 		Zombie.Variant.RUNNER:
 			scale = Vector3(0.82, 0.9, 0.82)
-			_variant_mat.albedo_color = Color(0.95, 0.85, 0.25, 0.28)
+			_variant_mat.albedo_color = Color(0.55, 0.48, 0.25, 0.09)
 			_eye_mat.albedo_color = Color(1.0, 0.8, 0.06)
 			_eye_mat.emission = Color(1.0, 0.35, 0.01)
 		Zombie.Variant.BRUTE:
 			scale = Vector3(1.32, 1.28, 1.32)
-			_variant_mat.albedo_color = Color(0.55, 0.2, 0.75, 0.3)
+			_variant_mat.albedo_color = Color(0.32, 0.26, 0.36, 0.10)
 			_eye_mat.albedo_color = Color(0.72, 0.12, 1.0)
 			_eye_mat.emission = Color(0.38, 0.02, 0.9)
 		_:
@@ -341,10 +330,13 @@ func _on_respawned() -> void:
 	_growl_timer = randf_range(0.5, 4.0)
 	_was_windup = false
 	_flash = 0.0
-	_walk_phase = 0.0
+	_walk_phase = fmod(float(get_index()) * 2.399963, TAU)
+	_move_amount = 0.0
+	_local_velocity = Vector3.ZERO
 	_stagger_phase = 0.0
 	_arm_blend = 0.0
-	_idle_phase = 0.0
+	_idle_phase = fmod(float(get_index()) * 1.7, TAU)
+	_eye_mat.emission_energy_multiplier = 1.2
 	_attack_pulse = 0.0
 	_apply_rest_pose()
 	_bar.visible = true
@@ -354,6 +346,6 @@ func _on_respawned() -> void:
 
 func _collect_meshes(node: Node) -> void:
 	for child in node.get_children():
-		if child is MeshInstance3D:
+		if child is MeshInstance3D and child.visible and child.mesh != null:
 			_meshes.append(child)
 		_collect_meshes(child)

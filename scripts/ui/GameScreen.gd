@@ -9,11 +9,8 @@ extends Node3D
 
 const MENU_SCENE := "res://scenes/ui/MainMenu.tscn"
 
-const BG := Color("#12141a")
-const PANEL := Color("#1b1f27")
-const FG := Color("#e6e9ef")
-const DIM := Color("#8d95a5")
-const ACCENT := Color("#d99a3c")
+## Сколько секунд держится подсказка по управлению при входе в комнату
+const HINT_SECONDS := 12.0
 
 @export var arena_scene: PackedScene
 
@@ -24,22 +21,21 @@ var _finished: bool = false
 @onready var _rig: SpringArm3D = $CameraRig
 
 var _hud: Control
-var _p_hp: ColorRect
-var _p_st: ColorRect
-var _p_label: Label
-var _ally_box: Control
-var _a_hp: ColorRect
-var _a_label: Label
-var _ally_labels: Array[Control] = []
-var _info: Label
+var _p_bar: HudBar
+var _p_guard: HudBar
+var _ally_panel: PanelContainer
+var _a_bar: HudBar
+var _chips: Dictionary = {}
 var _overlay: Control
 var _overlay_title: Label
 var _overlay_text: Label
 var _upgrade_overlay: Control
 var _upgrade_box: VBoxContainer
-var _revive_back: ColorRect
-var _revive_fill: ColorRect
+var _revive_box: PanelContainer
+var _revive_bar: HudBar
 var _revive_label: Label
+var _hint_box: Label
+var _hint_time: float = HINT_SECONDS
 var _toast: Label
 var _toast_time: float = 0.0
 var _rng := RandomNumberGenerator.new()
@@ -101,7 +97,7 @@ func _process(delta: float) -> void:
 		if _toast_time <= 0.0:
 			_toast.visible = false
 
-	_update_hud()
+	_update_hud(delta)
 	_update_hit_stop()
 
 
@@ -129,153 +125,218 @@ func _build_hud() -> void:
 	_hud = Control.new()
 	_hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.theme = UITheme.theme()
 	layer.add_child(_hud)
 
-	# Панели - только фон. Всё содержимое кладём прямо на _hud абсолютными
-	# координатами: PanelContainer сжимает вложенные Control по минимальному
-	# размеру и обрезает подписи.
-	_hud.add_child(_panel(Vector2(16, 16), Vector2(300, 92)))
-	_hud.add_child(_text("ГЛАДИАТОР", Vector2(28, 22), 11, DIM))
-	_p_hp = _bar(Vector2(28, 42), Vector2(276, 20), Color("#c8352c"))
-	_p_label = _text("", Vector2(36, 43), 13, FG)
-	_hud.add_child(_p_label)
-	_p_st = _bar(Vector2(28, 70), Vector2(276, 12), Color("#59a0d8"))
-	_hud.add_child(_text("щит", Vector2(36, 68), 10, Color(1, 1, 1, 0.85)))
-
-	_ally_box = _panel(Vector2(16, 120), Vector2(300, 70))
-	_hud.add_child(_ally_box)
-	var ally_caption := _text("НАПАРНИК · ИИ", Vector2(28, 126), 11, ACCENT)
-	_hud.add_child(ally_caption)
-	_ally_labels = [ally_caption]
-	_a_hp = _bar(Vector2(28, 146), Vector2(276, 20), Color("#7a9e4b"))
-	_a_label = _text("", Vector2(36, 147), 13, FG)
-	_hud.add_child(_a_label)
-	_ally_labels.append(_a_label)
-
-	_info = _text("", Vector2(18, 206), 15, FG)
-	_hud.add_child(_info)
-
-	# Если политика напарника не подошла (например, обучена на старом наборе
-	# наблюдений), он просто стоит столбом. Молча это выглядит как баг игры,
-	# поэтому причину показываем прямо на экране.
-	if arena != null and arena.ally != null and arena.ally_status.begins_with("политика ждёт"):
-		var warn := _text("Напарник не активен: " + arena.ally_status,
-			Vector2(18, 232), 13, Color("#d1584f"))
-		_hud.add_child(warn)
-
-	# Полоса подъёма - показывается, только когда есть кого поднимать
-	_revive_back = ColorRect.new()
-	_revive_back.size = Vector2(340, 26)
-	_revive_back.color = Color(0.08, 0.07, 0.07, 0.85)
-	_revive_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_revive_back.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_revive_back.position = Vector2(-170, -150)
-	_hud.add_child(_revive_back)
-
-	_revive_fill = ColorRect.new()
-	_revive_fill.size = Vector2(0, 22)
-	_revive_fill.position = Vector2(2, 2)
-	_revive_fill.color = ACCENT
-	_revive_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_revive_back.add_child(_revive_fill)
-
-	_revive_label = _text("", Vector2(10, 4), 12, FG)
-	_revive_back.add_child(_revive_label)
-	_revive_back.visible = false
-
-	_exit_hint = _text("", Vector2(0, 0), 16, Color("#5fd39a"))
-	_exit_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_exit_hint.position = Vector2(-260, -104)
-	_exit_hint.size = Vector2(520, 26)
-	_exit_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_exit_hint.visible = false
-	_hud.add_child(_exit_hint)
-
-	_toast = _text("", Vector2(0, 0), 18, ACCENT)
-	_toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_toast.position = Vector2(-220, 86)
-	_toast.size = Vector2(440, 30)
-	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_toast.visible = false
-	_hud.add_child(_toast)
-
-	var hint := _text("WASD — движение · ЛКМ / Space — меч · ПКМ / Shift — щит · E — пинок · F — поднять · Esc — пауза", Vector2(0, 0), 12, DIM)
-	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hint.position = Vector2(18, -34)
-	_hud.add_child(hint)
+	_build_fighter_panels()
+	_build_chips()
+	_build_crosshair()
+	_build_revive_bar()
+	_build_notices()
 
 	_build_overlay(layer)
 	_build_upgrade_overlay(layer)
 
 
-func _panel(pos: Vector2, size: Vector2) -> PanelContainer:
-	var p := PanelContainer.new()
-	p.position = pos
-	p.custom_minimum_size = size
-	p.size = size
-	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var st := StyleBoxFlat.new()
-	st.bg_color = Color(0.05, 0.05, 0.06, 0.66)
-	st.set_corner_radius_all(6)
-	p.add_theme_stylebox_override("panel", st)
-	return p
+## Панели бойцов слева сверху. Раньше содержимое клалось на _hud абсолютными
+## координатами в обход панели, потому что PanelContainer сжимал вложенные
+## Control. Причина была не в PanelContainer, а в том, что вложенные узлы не
+## сообщали минимальный размер: контейнеру нечего было раскладывать. Полосы
+## теперь настоящие Control с custom_minimum_size, и вложение работает.
+func _build_fighter_panels() -> void:
+	var col := VBoxContainer.new()
+	col.position = Vector2(16, 16)
+	col.custom_minimum_size = Vector2(320, 0)
+	col.add_theme_constant_override("separation", 8)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(col)
+
+	# --- Игрок ---
+	var p_panel := PanelContainer.new()
+	p_panel.add_theme_stylebox_override("panel", UITheme.panel_style(0.82))
+	p_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(p_panel)
+
+	var p_box := VBoxContainer.new()
+	p_box.add_theme_constant_override("separation", 6)
+	p_panel.add_child(p_box)
+	p_box.add_child(_caption_row("helmet", "ГЛАДИАТОР", UITheme.DIM))
+
+	_p_bar = HudBar.new(276, 24, UITheme.DANGER, true)
+	# Ниже трети здоровья полоса начинает пульсировать. Это единственный
+	# сигнал о критическом состоянии: цифры в бою читать некогда.
+	_p_bar.pulse_below = 0.33
+	p_box.add_child(_p_bar)
+
+	# Полоса щита подписана глифом, а не словом «щит»: отдельная строка
+	# подписи стоила бы ещё 14 пикселей высоты панели, а иконка слева от
+	# полосы не стоит ничего и читается быстрее текста.
+	var guard_row := HBoxContainer.new()
+	guard_row.add_theme_constant_override("separation", 6)
+	guard_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	guard_row.add_child(UITheme.icon_rect("shield", 14, UITheme.GUARD))
+	_p_guard = HudBar.new(256, 14, UITheme.GUARD, false)
+	guard_row.add_child(_p_guard)
+	p_box.add_child(guard_row)
+
+	# --- Напарник ---
+	# Панель создаётся всегда, но в одиночной игре скрыта. Держать её пустой
+	# на экране, как было раньше, значит показывать полосу здоровья того,
+	# кого в бою нет.
+	_ally_panel = PanelContainer.new()
+	_ally_panel.add_theme_stylebox_override("panel", UITheme.panel_style(0.82))
+	_ally_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ally_panel.visible = false
+	col.add_child(_ally_panel)
+
+	var a_box := VBoxContainer.new()
+	a_box.add_theme_constant_override("separation", 6)
+	_ally_panel.add_child(a_box)
+	a_box.add_child(_caption_row("helmet", "НАПАРНИК · ИИ", UITheme.ACCENT))
+
+	_a_bar = HudBar.new(276, 22, UITheme.ALLY, true)
+	a_box.add_child(_a_bar)
+
+	# Если политика напарника не подошла (например, обучена на старом наборе
+	# наблюдений), он просто стоит столбом. Молча это выглядит как баг игры,
+	# поэтому причину показываем прямо на экране.
+	if arena != null and arena.ally != null and arena.ally_status.begins_with("политика ждёт"):
+		var warn := UITheme.label("Напарник не активен: " + arena.ally_status,
+			12, UITheme.DANGER)
+		warn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		warn.custom_minimum_size = Vector2(276, 0)
+		a_box.add_child(warn)
 
 
-func _bar(pos: Vector2, size: Vector2, color: Color) -> ColorRect:
-	var back := ColorRect.new()
-	back.position = pos - Vector2(2, 2)
-	back.size = size + Vector2(4, 4)
-	back.color = Color(0.08, 0.07, 0.07, 0.9)
-	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hud.add_child(back)
-
-	var fill := ColorRect.new()
-	fill.position = pos
-	fill.size = size
-	fill.color = color
-	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hud.add_child(fill)
-	fill.set_meta("full_width", size.x)
-	return fill
+func _caption_row(icon_name: String, text: String, color: Color) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(UITheme.icon_rect(icon_name, 14, color))
+	row.add_child(UITheme.label(text, 11, color, 3))
+	return row
 
 
-func _text(s: String, pos: Vector2, size: int, color: Color) -> Label:
-	var l := Label.new()
-	l.text = s
-	l.position = pos
-	l.add_theme_font_size_override("font_size", size)
-	l.add_theme_color_override("font_color", color)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	l.add_theme_constant_override("outline_size", 4)
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return l
+## Строка состояния забега сверху по центру.
+##
+## Была одной длинной строкой в левом краю: «Комната 1 Волна 1/2 · всего 1
+## Убито 0 Зомби 2 0:09». Такую строку нельзя прочитать боковым зрением -
+## глаз не знает, где кончается одно число и начинается другое. Иконка
+## перед каждым значением решает это без всяких подписей.
+func _build_chips() -> void:
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	row.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	row.position = Vector2(0, 12)
+	row.add_theme_constant_override("separation", 20)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(row)
+
+	for spec in [["arch", "room", UITheme.DIM], ["banner", "wave", UITheme.DIM],
+			["skull", "kills", UITheme.DIM], ["sword", "alive", UITheme.DANGER],
+			["hourglass", "time", UITheme.DIM]]:
+		var chip := HBoxContainer.new()
+		chip.add_theme_constant_override("separation", 5)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(UITheme.icon_rect(str(spec[0]), 18, spec[2]))
+		var value := UITheme.label("", 15, UITheme.FG)
+		chip.add_child(value)
+		_chips[str(spec[1])] = value
+		row.add_child(chip)
 
 
-func _set_bar(bar: ColorRect, ratio: float) -> void:
-	bar.size.x = bar.get_meta("full_width") * clampf(ratio, 0.0, 1.0)
+## Прицел. В бою от третьего лица без него непонятно, куда смотрит камера:
+## меч бьёт по направлению взгляда, а не по центру силуэта бойца.
+func _build_crosshair() -> void:
+	var c := Crosshair.new()
+	c.custom_minimum_size = Vector2(24, 24)
+	c.size = Vector2(24, 24)
+	# Размер выставляем ДО пресета и просим его сохранить. Обычный
+	# set_anchors_preset пересчитывает отступы под текущий размер и при
+	# ручной правке position обнулял высоту - прицел не рисовался вовсе.
+	c.set_anchors_and_offsets_preset(Control.PRESET_CENTER,
+		Control.PRESET_MODE_KEEP_SIZE)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(c)
 
 
-func _update_hud() -> void:
+func _build_revive_bar() -> void:
+	_revive_box = PanelContainer.new()
+	_revive_box.add_theme_stylebox_override("panel", UITheme.panel_style(0.9))
+	_revive_box.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_revive_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_revive_box.position = Vector2(0, -160)
+	_revive_box.visible = false
+	_revive_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(_revive_box)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 5)
+	_revive_box.add_child(box)
+
+	_revive_label = UITheme.label("", 13, UITheme.FG)
+	_revive_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_revive_label.custom_minimum_size = Vector2(340, 0)
+	box.add_child(_revive_label)
+
+	_revive_bar = HudBar.new(340, 16, UITheme.ACCENT, false)
+	# Подъём напарника - действие игрока, а не урон: сглаживание здесь
+	# только запаздывало бы за клавишей.
+	_revive_bar.smooth_speed = 0.0
+	box.add_child(_revive_bar)
+
+
+func _build_notices() -> void:
+	_exit_hint = UITheme.label("", 16, UITheme.GOOD)
+	_exit_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_exit_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_exit_hint.position = Vector2(0, -112)
+	_exit_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_exit_hint.visible = false
+	_hud.add_child(_exit_hint)
+
+	_toast = UITheme.label("", 18, UITheme.ACCENT)
+	_toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_toast.position = Vector2(0, 54)
+	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast.visible = false
+	_hud.add_child(_toast)
+
+	# Подсказка по управлению нужна первые секунды, дальше это просто мусор
+	# в углу. Гаснет сама и возвращается при каждом входе в новую комнату.
+	_hint_box = UITheme.label(
+		"WASD — движение · ЛКМ — меч · ПКМ — щит · E — пинок · F — поднять · Esc — пауза",
+		12, UITheme.DIM)
+	_hint_box.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_hint_box.position = Vector2(18, -34)
+	_hud.add_child(_hint_box)
+
+
+func _update_hud(delta: float) -> void:
 	var g := arena.gladiator
-	_set_bar(_p_hp, g.get_health_ratio() if g.is_alive() else 0.0)
-	_set_bar(_p_st, g.get_block_stamina_ratio())
-	_p_label.text = "%d / %d" % [roundi(g.health), roundi(g.max_health)] if g.is_alive() else "ПАЛ"
+	_p_bar.set_ratio(g.get_health_ratio() if g.is_alive() else 0.0)
+	_p_bar.set_text("%d / %d" % [roundi(g.health), roundi(g.max_health)]
+		if g.is_alive() else "ПАЛ")
+	_p_guard.set_ratio(g.get_block_stamina_ratio())
 
+	_ally_panel.visible = arena.ally != null
 	if arena.ally != null:
-		_ally_box.visible = true
-		_set_bar(_a_hp, arena.ally.get_health_ratio() if arena.ally.is_alive() else 0.0)
-		_a_hp.visible = true
-		_a_label.text = "%d / %d" % [roundi(arena.ally.health), roundi(arena.ally.max_health)] \
-			if arena.ally.is_alive() else "пал"
-	else:
-		_ally_box.visible = false
-		_a_hp.visible = false
-		_a_label.text = ""
+		var a := arena.ally
+		_a_bar.set_ratio(a.get_health_ratio() if a.is_alive() else 0.0)
+		_a_bar.set_text("%d / %d" % [roundi(a.health), roundi(a.max_health)]
+			if a.is_alive() else "пал")
 
-	_info.text = "Комната %d      Волна %d/%d · всего %d      Убито %d      Зомби %d      %d:%02d" % [
-		_room_index, arena.wave_index, arena.waves_in_room, arena.run_wave_index,
-		arena.total_kills,
-		arena.get_alive_count(), int(_elapsed) / 60, int(_elapsed) % 60]
+	_chips["room"].text = str(_room_index)
+	_chips["wave"].text = "%d/%d" % [arena.wave_index, arena.waves_in_room]
+	_chips["kills"].text = str(arena.total_kills)
+	_chips["alive"].text = str(arena.get_alive_count())
+	_chips["time"].text = "%d:%02d" % [int(_elapsed) / 60, int(_elapsed) % 60]
+
+	if _hint_time > 0.0:
+		_hint_time -= delta
+		_hint_box.modulate.a = clampf(_hint_time, 0.0, 1.0)
+		_hint_box.visible = _hint_time > 0.0
 
 	_update_revive_ui()
 	_update_room()
@@ -289,11 +350,11 @@ func _update_revive_ui() -> void:
 			break
 
 	if downed == null:
-		_revive_back.visible = false
+		_revive_box.visible = false
 		return
 
-	_revive_back.visible = true
-	_revive_fill.size.x = 336.0 * arena.revive_progress
+	_revive_box.visible = true
+	_revive_bar.set_ratio(arena.revive_progress)
 	var who := "Напарник" if downed != arena.gladiator else "Вы"
 	if arena.revive_progress > 0.0:
 		_revive_label.text = "%s: подъём…" % who
@@ -419,6 +480,11 @@ func _enter_room(index: int) -> void:
 			f.health = clampf(f.max_health * float(carry[f]) + 15.0, 1.0, f.max_health)
 
 	_exit_hint.visible = false
+	# Подсказка по управлению возвращается в каждой новой комнате: между
+	# забегами легко забыть, что напарника поднимают именно F.
+	_hint_time = HINT_SECONDS
+	_hint_box.modulate.a = 1.0
+	_hint_box.visible = true
 	_show_toast(RoomGenerator.describe(_room_cfg))
 
 
@@ -453,12 +519,10 @@ func _show_upgrades() -> void:
 	for c in _upgrade_box.get_children():
 		c.queue_free()
 
-	var title := Label.new()
-	title.text = "Волна отбита — выбери награду"
+	var title := UITheme.label("Волна отбита — выбери награду", 26, UITheme.ACCENT, 0)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 26)
-	title.add_theme_color_override("font_color", ACCENT)
 	_upgrade_box.add_child(title)
+	_upgrade_box.add_child(_spacer(6))
 
 	for u in Upgrades.roll(_rng, 3):
 		_upgrade_box.add_child(_upgrade_card(u))
@@ -470,22 +534,48 @@ func _show_upgrades() -> void:
 	_stop_until_ms = 0
 
 
+## Какой глиф показать на карточке награды. Иконка нужна не для красоты:
+## названия вроде «Второе дыхание» и «Братство» ничего не говорят о том,
+## что именно улучшается, а меч, щит и склянка говорят сразу.
+const UPGRADE_ICONS := {
+	"hp": "helmet", "sword_damage": "sword", "sword_speed": "sword",
+	"shield_stamina": "shield", "shield_regen": "shield", "speed": "banner",
+	"kick_stun": "skull", "reach": "sword", "potion": "potion",
+	"revive": "helmet",
+}
+
+
+## Карточка награды.
+##
+## Содержимое лежит дочерними узлами поверх кнопки, а не в её тексте: две
+## строки разного размера и цвета плюс иконка в Button.text не помещаются.
+## Дочерние узлы игнорируют мышь, поэтому клик по-прежнему ловит кнопка.
 func _upgrade_card(u: Dictionary) -> Button:
 	var b := Button.new()
-	b.text = str(u["name"]) + "\n" + str(u["desc"])
-	b.custom_minimum_size = Vector2(440, 64)
-	b.add_theme_font_size_override("font_size", 15)
+	b.custom_minimum_size = Vector2(460, 68)
 	b.process_mode = Node.PROCESS_MODE_ALWAYS
-	var st := StyleBoxFlat.new()
-	st.bg_color = PANEL
-	st.set_corner_radius_all(6)
-	st.set_content_margin_all(10)
-	b.add_theme_stylebox_override("normal", st)
-	var hv := st.duplicate() as StyleBoxFlat
-	hv.bg_color = Color("#2c3340")
-	b.add_theme_stylebox_override("hover", hv)
-	b.add_theme_color_override("font_color", FG)
 	b.pressed.connect(_on_upgrade_picked.bind(str(u["id"])))
+
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 14.0
+	row.offset_right = -14.0
+	row.add_theme_constant_override("separation", 14)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+
+	var icon_name: String = UPGRADE_ICONS.get(str(u["id"]), "banner")
+	var icon := UITheme.icon_rect(icon_name, 30, UITheme.ACCENT)
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(icon)
+
+	var col := VBoxContainer.new()
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_theme_constant_override("separation", 2)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(col)
+	col.add_child(UITheme.label(str(u["name"]), 17, UITheme.FG, 0))
+	col.add_child(UITheme.label(str(u["desc"]), 13, UITheme.DIM, 0))
 	return b
 
 
@@ -504,6 +594,7 @@ func _build_upgrade_overlay(layer: CanvasLayer) -> void:
 	_upgrade_overlay = Control.new()
 	_upgrade_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_upgrade_overlay.visible = false
+	_upgrade_overlay.theme = UITheme.theme()
 	_upgrade_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
 	layer.add_child(_upgrade_overlay)
 
@@ -528,6 +619,7 @@ func _build_overlay(layer: CanvasLayer) -> void:
 	_overlay = Control.new()
 	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_overlay.visible = false
+	_overlay.theme = UITheme.theme()
 	# Оверлей обязан жить на паузе, иначе кнопки перестанут нажиматься
 	_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
 	layer.add_child(_overlay)
@@ -545,21 +637,17 @@ func _build_overlay(layer: CanvasLayer) -> void:
 	box.add_theme_constant_override("separation", 10)
 	_overlay.add_child(box)
 
-	_overlay_title = Label.new()
+	box.add_child(UITheme.icon_rect("emblem", 64, UITheme.ACCENT))
+
+	_overlay_title = UITheme.label("", 34, UITheme.ACCENT, 0)
 	_overlay_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_overlay_title.add_theme_font_size_override("font_size", 34)
-	_overlay_title.add_theme_color_override("font_color", ACCENT)
 	box.add_child(_overlay_title)
 
-	_overlay_text = Label.new()
+	_overlay_text = UITheme.label("", 14, UITheme.DIM, 0)
 	_overlay_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_overlay_text.add_theme_font_size_override("font_size", 14)
-	_overlay_text.add_theme_color_override("font_color", DIM)
 	box.add_child(_overlay_text)
 
-	var sp := Control.new()
-	sp.custom_minimum_size = Vector2(0, 14)
-	box.add_child(sp)
+	box.add_child(_spacer(14))
 
 	box.add_child(_menu_button("Продолжить / Заново", _on_primary))
 	box.add_child(_menu_button("В меню", _to_menu))
@@ -570,17 +658,17 @@ func _menu_button(text: String, handler: Callable) -> Button:
 	b.text = text
 	b.custom_minimum_size = Vector2(0, 42)
 	b.add_theme_font_size_override("font_size", 16)
+	# Оверлей живёт на паузе, значит и кнопки на нём тоже должны
 	b.process_mode = Node.PROCESS_MODE_ALWAYS
-	var st := StyleBoxFlat.new()
-	st.bg_color = PANEL
-	st.set_corner_radius_all(6)
-	b.add_theme_stylebox_override("normal", st)
-	var hv := st.duplicate() as StyleBoxFlat
-	hv.bg_color = PANEL.lightened(0.15)
-	b.add_theme_stylebox_override("hover", hv)
-	b.add_theme_color_override("font_color", FG)
 	b.pressed.connect(handler)
 	return b
+
+
+func _spacer(h: int) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(0, h)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return c
 
 
 ## Курсор захватывается только когда идёт бой: в паузе и в меню наград
@@ -647,3 +735,137 @@ func _to_menu() -> void:
 	Engine.time_scale = 1.0
 	_capture_mouse(false)
 	get_tree().change_scene_to_file(MENU_SCENE)
+
+# ------------------------------------------------------------------
+# Виджеты HUD
+# ------------------------------------------------------------------
+
+## Полоса с обоймой, сглаживанием и «призраком» потери.
+##
+## Призрак - светлый хвост, который остаётся на месте прежнего значения и
+## догоняет полосу с задержкой. Он показывает не «сколько осталось», а
+## «сколько только что сняли»: без него удар на 34 единицы и удар на 12
+## выглядят одинаково - полоса просто оказывается короче.
+class HudBar extends Control:
+	var color: Color
+	## Ниже этой доли полоса пульсирует. 0 - не пульсировать.
+	var pulse_below: float = 0.0
+	## 0 - показывать значение мгновенно, без сглаживания.
+	var smooth_speed: float = 16.0
+	var ghost_speed: float = 2.6
+	var ghost_delay: float = 0.35
+
+	var _ghost: ColorRect
+	var _fill: ColorRect
+	var _label: Label
+	var _target: float = 1.0
+	var _shown: float = 1.0
+	var _ghost_v: float = 1.0
+	var _ghost_wait: float = 0.0
+	var _t: float = 0.0
+
+	func _init(w: int, h: int, c: Color, with_label: bool) -> void:
+		color = c
+		custom_minimum_size = Vector2(w, h)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+		# Ширина задаётся якорем, а не размером в пикселях: полоса тогда
+		# правильно тянется вместе с панелью на любом разрешении.
+		var back := ColorRect.new()
+		back.set_anchors_preset(Control.PRESET_FULL_RECT)
+		back.color = Color(0.06, 0.05, 0.05, 0.92)
+		back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(back)
+
+		_ghost = ColorRect.new()
+		_ghost.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		_ghost.anchor_right = 1.0
+		_ghost.offset_right = 0.0
+		_ghost.color = c.lightened(0.45)
+		_ghost.color.a = 0.55
+		_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_ghost)
+
+		_fill = ColorRect.new()
+		_fill.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		_fill.anchor_right = 1.0
+		_fill.offset_right = 0.0
+		_fill.color = c
+		_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_fill)
+
+		# Обойма ставится только если полоса выше суммы полей nine-slice.
+		# Иначе кромка растянулась бы на всю плашку и закрыла заливку -
+		# именно так полосы здоровья и оказались сплошь золотыми.
+		if h >= UITheme.BAR_MIN_HEIGHT:
+			var frame := Panel.new()
+			frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+			frame.add_theme_stylebox_override("panel", UITheme.bar_frame_style())
+			frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			add_child(frame)
+
+		if with_label:
+			_label = UITheme.label("", maxi(11, h - 8), UITheme.FG, 3)
+			_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+			_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			add_child(_label)
+
+	func set_ratio(r: float) -> void:
+		r = clampf(r, 0.0, 1.0)
+		if r < _target:
+			_ghost_wait = ghost_delay
+		_target = r
+		if smooth_speed <= 0.0:
+			_shown = r
+			_ghost_v = r
+
+	func set_text(s: String) -> void:
+		if _label != null:
+			_label.text = s
+
+	func _process(delta: float) -> void:
+		if smooth_speed > 0.0:
+			_shown = lerpf(_shown, _target, 1.0 - exp(-smooth_speed * delta))
+			if absf(_shown - _target) < 0.002:
+				_shown = _target
+
+		# Призрак только опускается. При лечении он обязан подпрыгнуть сразу,
+		# иначе светлый хвост окажется НИЖЕ полосы и прочитается как урон.
+		if _target >= _ghost_v:
+			_ghost_v = _target
+			_ghost_wait = 0.0
+		elif _ghost_wait > 0.0:
+			_ghost_wait -= delta
+		else:
+			_ghost_v = lerpf(_ghost_v, _shown, 1.0 - exp(-ghost_speed * delta))
+
+		_fill.anchor_right = _shown
+		_fill.offset_right = 0.0
+		_ghost.anchor_right = maxf(_ghost_v, _shown)
+		_ghost.offset_right = 0.0
+
+		if pulse_below > 0.0 and _target > 0.0 and _target < pulse_below:
+			_t += delta
+			_fill.color = color.lightened(0.35 * (0.5 + 0.5 * sin(_t * 9.0)))
+		else:
+			_fill.color = color
+
+
+## Прицел: четыре штриха с зазором и точка в центре.
+##
+## Рисуется кодом, а не текстурой: на любом разрешении он должен остаться
+## ровно в один пиксель толщиной, а масштабированная картинка замылилась бы.
+class Crosshair extends Control:
+	func _draw() -> void:
+		var c := size * 0.5
+		# Каждый штрих рисуется дважды: сначала тёмная подложка, поверх -
+		# светлое ядро. Один белый штрих терялся на светлом песке арены,
+		# а один тёмный - на тени под стеной.
+		for pass_i in 2:
+			var col := Color(0, 0, 0, 0.55) if pass_i == 0 else Color(1, 1, 1, 0.8)
+			var wide := 3.4 if pass_i == 0 else 1.4
+			for d in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
+				draw_line(c + d * 4.0, c + d * 9.0, col, wide, true)
+		draw_circle(c, 2.2, Color(0, 0, 0, 0.55))
+		draw_circle(c, 1.2, Color(1, 1, 1, 0.9))
