@@ -31,6 +31,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		queue_attack(Gladiator.AttackType.KICK)
 
 func queue_attack(kind: int) -> void:
+	if _g != null and (_g.combat_state == Gladiator.CombatState.WINDUP or _g.combat_state == Gladiator.CombatState.ACTIVE_HIT or _g.combat_state == Gladiator.CombatState.STAGGER):
+		return
+	if _g != null and _g.combat_state == Gladiator.CombatState.RECOVERY and not _g.combo_window_open:
+		return
 	# Only the latest press is buffered, so clicks cannot build an unwanted combo.
 	_queued_attack = kind
 	_buffer_left = attack_buffer_time
@@ -43,6 +47,8 @@ func _physics_process(delta: float) -> void:
 		return
 	_g.human_movement = true
 	var camera_yaw := _camera_yaw()
+	var camera := get_viewport().get_camera_3d()
+	_g.intent_aim_direction = -camera.global_basis.z if camera != null else _g.forward()
 	var stick := Input.get_vector("g_left", "g_right", "g_forward", "g_back")
 	_g.intent_move_world = Vector3(stick.x, 0.0, stick.y).rotated(Vector3.UP, camera_yaw)
 	_g.intent_block = Input.is_action_pressed("g_block")
@@ -75,6 +81,7 @@ func clear_input() -> void:
 	_g.intent_kick = false
 	_g.intent_block = false
 	_g.intent_revive = false
+	_g.intent_aim_direction = Vector3.ZERO
 
 func _on_attack_started(kind: int) -> void:
 	if kind == _queued_attack:

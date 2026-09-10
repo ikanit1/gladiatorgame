@@ -236,7 +236,11 @@ func _hide_visuals_of(body: Node) -> void:
 
 func _get_free_zombie() -> Zombie:
 	for z in _pool:
-		if not z.is_alive():
+		if not z.is_alive() and not z.retiring:
+			return z
+	# Reuse a corpse if the pool is full rather than delaying a scheduled spawn.
+	for z in _pool:
+		if z.retiring:
 			return z
 	return null   # пул исчерпан - молча пропускаем спавн
 
@@ -901,7 +905,10 @@ func _on_zombie_died(z: Zombie) -> void:
 	# ПОДВОХ Godot: менять коллизии внутри физического шага нельзя.
 	# deactivate() использует set_deferred, но саму деактивацию тоже
 	# откладываем - тело успевает "дожить" текущий кадр.
-	z.deactivate.call_deferred()
+	if visuals_enabled:
+		z.retire_with_animation.call_deferred()
+	else:
+		z.deactivate.call_deferred()
 
 	if _alive_count <= 0:
 		_wave_timer = wave_delay
@@ -936,7 +943,7 @@ func reset_arena(reset_position: bool = true, reset_run_stats: bool = true) -> v
 	_last_reset_frame = frame
 
 	for z in _pool:
-		if z.is_alive():
+		if z.is_alive() or z.retiring:
 			z.deactivate()
 
 	for p in _potions:

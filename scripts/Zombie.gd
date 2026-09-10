@@ -12,8 +12,12 @@ signal died(zombie: Zombie)
 signal hit_player(damage: float)
 signal damaged(amount: float)      ## для визуальной вспышки
 signal respawned()                 ## взят из пула - сбросить визуал
+signal hit_reaction(local_direction: Vector3, heavy: bool)
+signal attack_started()
+signal attack_contact()
 
-enum State { IDLE, CHASE, WINDUP, RECOVER, STAGGER, DEAD }
+enum State { IDLE, CHASE, WINDUP, RECOVER, STAGGER, DEAD, ACTIVE_HIT }
+const CombatClock := preload("res://scripts/CombatAnimation.gd")
 
 ## Разновидности. Множители применяются к БАЗОВЫМ значениям, а не к текущим:
 ## иначе при переиспользовании из пула они бы накапливались от волны к волне.
@@ -31,6 +35,9 @@ enum Variant { NORMAL, RUNNER, BRUTE }
 @export var attack_windup: float = 0.45    ## замах - окно, в котором игрок может увернуться/пнуть
 @export var attack_recover: float = 0.5
 @export var attack_cooldown: float = 1.3
+@export var attack_active_time := 0.14
+@export var attack_arc_deg := 100.0
+@export_range(0.1, 4.0) var attack_playback_speed := 1.0
 
 @export_group("Реакция на урон")
 @export var knockback_damping: float = 9.0
@@ -47,6 +54,13 @@ var _timer: float = 0.0
 var _attack_cd: float = 0.0
 var _knockback: Vector3 = Vector3.ZERO
 var _active: bool = false
+var retiring := false
+var combat_animation: CombatClock
+var attack_side := 1.0
+var attack_serial := 0
+var _next_attack_side := 1.0
+var _hitbox_enabled := false
+var _attack_landed := false
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 24.0)
 
 var variant: int = Variant.NORMAL
@@ -67,16 +81,22 @@ func _ready() -> void:
 	_base_speed = move_speed
 	_base_damage = attack_damage
 	_base_cooldown = attack_cooldown
+	combat_animation = CombatClock.new()
+	add_child(combat_animation)
+	combat_animation.configure(attack_windup, attack_active_time, attack_recover)
+	add_to_group("combat_telegraph")
 
 
 func _physics_process(delta: float) -> void:
 	if not _active or state == State.DEAD:
 		return
 
-	_attack_cd = maxf(0.0, _attack_cd - delta)
+	_attack_cd = maxf(0.0, _attack_cd - delta * effective_attack_speed())
 
-	if target == null or not target.is_alive():
-		state = State.IDLE
+	if not is_instance_valid(target) or not target.is_alive():
+		if state != State.STAGGER:
+			_cancel_attack()
+			state = State.IDLE
 	elif state == State.IDLE:
 		state = State.CHASE
 
@@ -85,12 +105,18 @@ func _physics_process(delta: float) -> void:
 			_state_chase(delta)
 		State.WINDUP:
 			_state_windup(delta)
-		State.RECOVER:
-			_state_timed(delta, State.CHASE)
+		State.ACTIVE_HIT, State.RECOVER:
+			_decelerate(delta)
 		State.STAGGER:
 			_state_timed(delta, State.CHASE)
 		State.IDLE:
 			_decelerate(delta)
+	combat_animation.step(delta, effective_attack_speed())
+	if _hitbox_enabled:
+		_sample_hitbox()
+	if combat_animation.running:
+		var end := combat_animation.windup_end if state == State.WINDUP else (combat_animation.active_end if state == State.ACTIVE_HIT else 1.0)
+		_timer = maxf(0, (end - combat_animation.cursor) * combat_animation.duration)
 
 	_apply_knockback(delta)
 	_apply_gravity(delta)
@@ -110,8 +136,7 @@ func _state_chase(delta: float) -> void:
 		_face(to_target / dist, delta)
 
 	if dist <= attack_range and _attack_cd <= 0.0:
-		state = State.WINDUP
-		_timer = attack_windup
+		_begin_attack()
 		_decelerate(delta)
 		return
 
@@ -127,22 +152,74 @@ func _state_windup(delta: float) -> void:
 	# Во время замаха зомби ещё доворачивается - иначе от него слишком легко уйти
 	var to_target := target.global_position - global_position
 	to_target.y = 0.0
-	if to_target.length_squared() > 0.0001:
+	if to_target.length_squared() > 0.0001 and combat_animation.phase_progress(0, combat_animation.windup_end) < 0.65:
 		_face(to_target.normalized(), delta * 0.5)
 
-	_timer -= delta
-	if _timer > 0.0:
+
+func effective_attack_speed() -> float:
+	# Even a buffed runner must leave at least 0.3 seconds to read a telegraph.
+	return clampf(attack_playback_speed, 0.1, maxf(attack_windup / 0.3, 0.1))
+
+
+func _begin_attack() -> void:
+	attack_serial += 1
+	state = State.WINDUP
+	_timer = attack_windup
+	attack_side = _next_attack_side
+	_next_attack_side *= -1.0
+	_attack_landed = false
+	_hitbox_enabled = false
+	combat_animation.configure(attack_windup, attack_active_time, attack_recover)
+	combat_animation.begin()
+	attack_started.emit()
+
+
+func EnableHitbox() -> void:
+	if state != State.WINDUP or not is_alive():
 		return
-
-	# Момент удара: проверяем, что цель всё ещё в радиусе
+	state = State.ACTIVE_HIT
+	_hitbox_enabled = true
 	_attack_cd = attack_cooldown
-	state = State.RECOVER
-	_timer = attack_recover
+	attack_contact.emit()
+	_sample_hitbox()
 
-	if target != null and target.is_alive() and to_target.length() <= attack_range * 1.15:
-		# self передаём, чтобы гладиатор мог оглушить нас успешным блоком
-		target.take_damage(attack_damage, global_position, self)
-		hit_player.emit(attack_damage)
+
+func _sample_hitbox() -> void:
+	if _attack_landed or not is_instance_valid(target) or not target.is_alive():
+		return
+	var offset: Vector3 = target.global_position - global_position
+	offset.y = 0.0
+	if offset.length() > attack_range * 1.15:
+		return
+	if offset.length_squared() > 0.001 and (-global_basis.z).angle_to(offset.normalized()) > deg_to_rad(attack_arc_deg * 0.5):
+		return
+	_attack_landed = true
+	target.take_damage(attack_damage, global_position, self)
+	hit_player.emit(attack_damage)
+
+
+func DisableHitbox() -> void:
+	if state != State.ACTIVE_HIT:
+		return
+	_hitbox_enabled = false
+	state = State.RECOVER
+
+
+func ResetComboWindow() -> void:
+	pass # Enemies have a cooldown rather than a player input buffer.
+
+
+func FinishAttack() -> void:
+	if state != State.RECOVER:
+		return
+	_cancel_attack()
+	state = State.CHASE if is_instance_valid(target) and target.is_alive() else State.IDLE
+
+
+func _cancel_attack() -> void:
+	if combat_animation != null:
+		combat_animation.cancel()
+	_hitbox_enabled = false
 
 
 func _state_timed(delta: float, next_state: int) -> void:
@@ -165,6 +242,9 @@ func take_damage(amount: float, from_position: Vector3, knockback: float = 0.0,
 
 	health -= amount
 	damaged.emit(amount)
+	var hit_dir := global_position - from_position
+	hit_dir.y = 0.0
+	hit_reaction.emit(global_basis.inverse() * hit_dir.normalized(), knockback >= 2.5 or stun > 0.5)
 
 	if knockback > 0.0:
 		var dir := global_position - from_position
@@ -172,10 +252,8 @@ func take_damage(amount: float, from_position: Vector3, knockback: float = 0.0,
 		if dir.length_squared() > 0.0001:
 			_knockback = dir.normalized() * knockback
 
-	if stun > 0.0:
-		state = State.STAGGER
-		_timer = maxf(_timer, stun)
-		_attack_cd = maxf(_attack_cd, stun)   # после стана нельзя бить мгновенно
+	if stun > 0.0 or state == State.WINDUP:
+		stagger(maxf(stun, 0.24), from_position)
 
 	if health <= 0.0:
 		health = 0.0
@@ -191,9 +269,14 @@ func stagger(duration: float, from_position: Vector3, knockback: float = 0.0) ->
 	if not is_alive():
 		return
 
+	var remaining := _timer if state == State.STAGGER else 0.0
+	_cancel_attack()
 	state = State.STAGGER
-	_timer = maxf(_timer, duration)
+	_timer = maxf(remaining, duration)
 	_attack_cd = maxf(_attack_cd, duration)
+	var hit_dir := global_position - from_position
+	hit_dir.y = 0.0
+	hit_reaction.emit(global_basis.inverse() * hit_dir.normalized(), duration >= 0.5)
 
 	if knockback > 0.0:
 		var dir := global_position - from_position
@@ -203,6 +286,7 @@ func stagger(duration: float, from_position: Vector3, knockback: float = 0.0) ->
 
 
 func _die() -> void:
+	_cancel_attack()
 	state = State.DEAD
 	velocity = Vector3.ZERO
 	_knockback = Vector3.ZERO
@@ -239,15 +323,19 @@ func _apply_variant_stats() -> void:
 	var cooldown_mult := 1.0
 	match variant:
 		Variant.RUNNER:
+			attack_windup = 0.35
 			health_mult = 0.5
 			speed_mult = 1.75
 			damage_mult = 0.65
 			cooldown_mult = 0.75
 		Variant.BRUTE:
+			attack_windup = 0.50
 			health_mult = 2.6
 			speed_mult = 0.62
 			damage_mult = 1.9
 			cooldown_mult = 1.25
+		_:
+			attack_windup = 0.45
 
 	max_health = _base_health * health_mult * _threat_health_scale
 	move_speed = _base_speed * speed_mult * _threat_speed_scale
@@ -256,6 +344,10 @@ func _apply_variant_stats() -> void:
 
 
 func activate(spawn_transform: Transform3D, new_target: Node3D) -> void:
+	retiring = false
+	_cancel_attack()
+	_attack_landed = false
+	_next_attack_side = 1.0
 	global_transform = spawn_transform
 	target = new_target
 	health = max_health
@@ -273,6 +365,8 @@ func activate(spawn_transform: Transform3D, new_target: Node3D) -> void:
 
 
 func deactivate() -> void:
+	retiring = false
+	_cancel_attack()
 	_active = false
 	state = State.DEAD
 	target = null
@@ -284,6 +378,17 @@ func deactivate() -> void:
 	_collision.set_deferred("disabled", true)
 	# Убираем далеко вниз, чтобы выключенное тело не мешало запросам формы
 	global_position = Vector3(0.0, -100.0, 0.0)
+
+
+func retire_with_animation() -> void:
+	if state != State.DEAD:
+		return
+	_cancel_attack()
+	retiring = true
+	_active = false
+	collision_layer = 0
+	collision_mask = 0
+	_collision.set_deferred("disabled", true)
 
 
 func is_alive() -> bool:

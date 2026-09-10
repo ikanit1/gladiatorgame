@@ -235,10 +235,11 @@ func compare_legacy_ai() -> void:
 			body.intent_move = 1.0 if i < 40 else -0.7
 			body.intent_turn = 0.5 if i < 65 else -1.0
 			body.intent_block = i >= 40 and i < 65
-			body.intent_sword = i == 75
+			# Combat timings now intentionally differ; compare locomotion/guard.
+			body.intent_sword = false
 			body._physics_process(DT)
 		if old.velocity.distance_to(current.velocity) > 0.0001 or absf(old.rotation.y - current.rotation.y) > 0.0001:
 			equivalent = false
-	check(equivalent and not current.human_movement, "100-step AI movement/block/attack trace matches original mechanic")
+	check(equivalent and not current.human_movement, "100-step AI movement/block trace matches original mechanic")
 	old.free()
 	current.free()

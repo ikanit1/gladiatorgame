@@ -261,7 +261,8 @@ func _bind_fighter(f: Gladiator) -> void:
 	f.dealt_damage.connect(_on_dealt_damage)
 	f.damage_blocked.connect(_on_blocked.bind(f))
 	f.took_damage.connect(_on_took_damage.bind(f))
-	f.attack_started.connect(_on_attack_started.bind(f))
+	f.attack_contact.connect(_on_attack_started.bind(f))
+	f.successful_parry.connect(_on_parry.bind(f))
 	f.respawned.connect(clear_effects)
 
 
@@ -304,6 +305,11 @@ func _on_dealt_damage(amount: float, target: Node3D, _type: int) -> void:
 
 func _on_blocked(_absorbed: float, f: Gladiator) -> void:
 	play(Kind.BLOCK, f.global_position + f.forward() * 0.6 + Vector3.UP * 1.1)
+
+
+func _on_parry(_attacker: Node3D, f: Gladiator) -> void:
+	spawn_number(f.global_position + Vector3.UP * 1.9, "ПАРИРОВАНИЕ", Color(0.55, 0.9, 1.0))
+	play(Kind.STUN, f.global_position + f.guard_direction() * 0.6 + Vector3.UP * 1.2)
 
 
 func _on_took_damage(amount: float, blocked: bool, f: Gladiator) -> void:

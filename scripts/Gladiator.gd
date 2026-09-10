@@ -24,8 +24,26 @@ signal revived(health_left: float)
 signal died()
 signal healed(amount: float)             ## сколько HP реально восстановлено
 signal respawned()                       ## после reset_state - сброс визуала
+signal attack_contact(attack_type: int)
+signal successful_parry(attacker: Node3D)
+signal hit_reaction(local_direction: Vector3, heavy: bool)
 
 enum AttackType { SWORD, KICK }
+enum CombatState { IDLE, WINDUP, ACTIVE_HIT, RECOVERY, STAGGER }
+const CombatClock := preload("res://scripts/CombatAnimation.gd")
+
+@export_group("Анимация боя")
+@export_range(0.1, 4.0) var attack_playback_speed := 1.0
+@export var sword_windup := 0.22
+@export var sword_active_time := 0.14
+@export var sword_recovery := 0.34
+@export var kick_windup := 0.20
+@export var kick_active_time := 0.12
+@export var kick_recovery := 0.30
+@export var sword_knockback := 1.2
+@export var hit_stagger_time := 0.20
+@export var parry_window := 0.50
+@export var parry_stagger_time := 1.1
 
 @export_group("Здоровье")
 @export var max_health: float = 100.0
@@ -57,7 +75,6 @@ enum AttackType { SWORD, KICK }
 @export var sword_range: float = 2.2
 @export var sword_arc_deg: float = 100.0
 @export var sword_max_targets: int = 3        ## меч бьёт по дуге, задевает нескольких
-@export var sword_lock_time: float = 0.3      ## окно уязвимости после замаха
 
 @export_group("Пинок")
 @export var kick_damage: float = 6.0
@@ -68,16 +85,11 @@ enum AttackType { SWORD, KICK }
 ## 3 секунды - это дольше, чем интервал атаки зомби (1.3 с), поэтому пинок
 ## теперь не столько урон, сколько полное выключение цели из боя.
 @export var kick_stun_time: float = 3.0
-@export var kick_lock_time: float = 0.2
 
 @export_group("Блок")
 @export var block_arc_deg: float = 130.0          ## сектор защиты спереди
 @export var block_damage_reduction: float = 1.0   ## 1.0 = щит гасит урон полностью
-## Успешный блок отбрасывает и оглушает атакующего. Это превращает щит из
-## пассивной защиты в инструмент контроля, но цена остаётся: стамина под
-## щитом только тратится (14/сек) и не восстанавливается, так что бесконечно
-## танковать нельзя - через ~7 секунд удержания приходит guard break.
-@export var block_stagger_time: float = 0.8
+## Удержание щита поглощает урон; поднятие во время замаха даёт парирование.
 @export var block_knockback: float = 5.0
 @export var block_stamina_max: float = 100.0
 @export var block_stamina_drain: float = 14.0     ## в секунду при удержании
@@ -97,6 +109,8 @@ var intent_revive: bool = false  ## удерживаемое: поднимаю �
 var human_movement: bool = false
 var intent_move_world := Vector3.ZERO
 var intent_facing_yaw: float = 0.0
+var intent_aim_direction := Vector3.ZERO
+var aim_target: Node3D = null
 
 # --- Состояние ---
 var health: float
@@ -106,6 +120,16 @@ var kick_cd: float = 0.0
 var action_lock: float = 0.0   ## пока > 0 - нельзя атаковать/блокировать
 var stun_time: float = 0.0
 var is_blocking: bool = false
+var combat_state: CombatState = CombatState.IDLE
+var combat_animation: CombatClock
+var current_attack: AttackType = AttackType.SWORD
+var combo_window_open := false
+var _hitbox_enabled := false
+var _hit_targets: Array[int] = []
+var _attack_hit_count := 0
+var _block_age := INF
+var _parry_sources: Dictionary = {}
+var _knockback := Vector3.ZERO
 
 var _alive: bool = true
 var _downed: bool = false
@@ -129,6 +153,9 @@ func _ready() -> void:
 
 	health = max_health
 	block_stamina = block_stamina_max
+	combat_animation = CombatClock.new()
+	add_child(combat_animation)
+	combat_animation.configure(sword_windup, sword_active_time, sword_recovery)
 
 
 func _physics_process(delta: float) -> void:
@@ -145,7 +172,8 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_tick_timers(delta)
-	if human_movement and stun_time <= 0.0:
+	_tick_combat(delta)
+	if human_movement and stun_time <= 0.0 and combat_state != CombatState.ACTIVE_HIT:
 		global_rotation.y = rotate_toward(global_rotation.y, intent_facing_yaw,
 			deg_to_rad(human_turn_speed_deg) * delta)
 	_update_block(delta)
@@ -170,18 +198,42 @@ func _tick_downed(delta: float) -> void:
 
 
 func _tick_timers(delta: float) -> void:
-	sword_cd = maxf(0.0, sword_cd - delta)
-	kick_cd = maxf(0.0, kick_cd - delta)
+	sword_cd = maxf(0.0, sword_cd - delta * maxf(attack_playback_speed, 0.1))
+	kick_cd = maxf(0.0, kick_cd - delta * maxf(attack_playback_speed, 0.1))
 	action_lock = maxf(0.0, action_lock - delta)
 	stun_time = maxf(0.0, stun_time - delta)
+	_block_age += delta
+
+
+func _tick_combat(delta: float) -> void:
+	if stun_time > 0.0:
+		if combat_state != CombatState.STAGGER:
+			_cancel_attack()
+			combat_state = CombatState.STAGGER
+		return
+	if combat_state == CombatState.STAGGER:
+		combat_state = CombatState.IDLE
+	combat_animation.step(delta, attack_playback_speed)
+	if _hitbox_enabled:
+		_sample_hitbox()
+	if combat_animation.running:
+		action_lock = maxf(0.001, (1.0 - combat_animation.cursor) * combat_animation.duration / maxf(attack_playback_speed, 0.1))
 
 
 func _update_block(delta: float) -> void:
-	var can_block := intent_block and stun_time <= 0.0 and action_lock <= 0.0 and block_stamina > 0.0
+	var can_block := intent_block and stun_time <= 0.0 and action_lock <= 0.0 and combat_state == CombatState.IDLE and block_stamina > 0.0
+	if can_block and not is_blocking:
+		_block_age = 0.0
+		_parry_sources.clear()
+		for enemy in get_tree().get_nodes_in_group("combat_telegraph"):
+			if enemy is Zombie and enemy.target == self and enemy.state == Zombie.State.WINDUP:
+				_parry_sources[enemy.get_instance_id()] = enemy.attack_serial
 	is_blocking = can_block
 
 	if is_blocking:
 		block_stamina = maxf(0.0, block_stamina - block_stamina_drain * delta)
+		if block_stamina <= 0.0:
+			_break_guard()
 	else:
 		block_stamina = minf(block_stamina_max, block_stamina + block_stamina_regen * delta)
 
@@ -206,7 +258,7 @@ func _handle_movement(delta: float) -> void:
 		speed_mult = human_block_speed_mult if human_movement else block_speed_mult
 
 	# Поворот (положительный intent_turn = вправо)
-	if stun_time <= 0.0 and not human_movement:
+	if stun_time <= 0.0 and not human_movement and combat_state != CombatState.ACTIVE_HIT:
 		rotate_y(-intent_turn * deg_to_rad(turn_speed_deg) * delta)
 
 	var move_input := intent_move
@@ -230,6 +282,10 @@ func _handle_movement(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, target_vel.x, acceleration * delta)
 		velocity.z = move_toward(velocity.z, target_vel.z, acceleration * delta)
 
+	if not _knockback.is_zero_approx():
+		velocity.x = _knockback.x
+		velocity.z = _knockback.z
+		_knockback = _knockback.move_toward(Vector3.ZERO, 12.0 * delta)
 	_apply_gravity(delta)
 	move_and_slide()
 
@@ -246,28 +302,81 @@ func _apply_gravity(delta: float) -> void:
 # ------------------------------------------------------------------
 
 func _handle_attacks() -> void:
-	if stun_time > 0.0 or action_lock > 0.0:
+	if stun_time > 0.0 or action_lock > 0.0 or combat_state != CombatState.IDLE:
 		return
-	# Wait for the body to face manual aim before an instantaneous hit query.
+	# Start the windup only after the body has caught up with manual aim.
 	if human_movement and absf(wrapf(intent_facing_yaw - global_rotation.y, -PI, PI)) > deg_to_rad(25.0):
 		return
 
 	if intent_sword and sword_cd <= 0.0:
 		sword_cd = sword_cooldown
-		action_lock = sword_lock_time
-		is_blocking = false   # нельзя бить и держать щит одновременно
-		attack_started.emit(AttackType.SWORD)
-		_perform_attack(sword_range, sword_arc_deg, sword_damage, 0.0, 0.0,
-				sword_max_targets, AttackType.SWORD)
+		_begin_attack(AttackType.SWORD)
 		return   # за один кадр - одна атака
 
 	if intent_kick and kick_cd <= 0.0:
 		kick_cd = kick_cooldown
-		action_lock = kick_lock_time
-		is_blocking = false
-		attack_started.emit(AttackType.KICK)
-		_perform_attack(kick_range, kick_arc_deg, kick_damage, kick_knockback,
-				kick_stun_time, 1, AttackType.KICK)
+		_begin_attack(AttackType.KICK)
+
+
+func _begin_attack(type: AttackType) -> void:
+	current_attack = type
+	combat_animation.configure(sword_windup if type == AttackType.SWORD else kick_windup,
+		sword_active_time if type == AttackType.SWORD else kick_active_time,
+		sword_recovery if type == AttackType.SWORD else kick_recovery)
+	_hit_targets.clear()
+	_attack_hit_count = 0
+	combo_window_open = false
+	_hitbox_enabled = false
+	is_blocking = false
+	combat_state = CombatState.WINDUP
+	action_lock = combat_animation.duration / maxf(attack_playback_speed, 0.1)
+	combat_animation.begin()
+	attack_started.emit(type)
+
+
+## Call Method tracks on CombatAnimation own all hit-window transitions.
+func EnableHitbox() -> void:
+	if combat_state != CombatState.WINDUP or not is_alive():
+		return
+	combat_state = CombatState.ACTIVE_HIT
+	_hitbox_enabled = true
+	attack_contact.emit(current_attack)
+	_sample_hitbox()
+
+
+func DisableHitbox() -> void:
+	if combat_state != CombatState.ACTIVE_HIT:
+		return
+	_hitbox_enabled = false
+	combat_state = CombatState.RECOVERY
+	if _attack_hit_count == 0:
+		attack_missed.emit(current_attack)
+
+
+func ResetComboWindow() -> void:
+	combo_window_open = combat_state == CombatState.RECOVERY
+
+
+func FinishAttack() -> void:
+	if combat_state != CombatState.RECOVERY:
+		return
+	_cancel_attack()
+	combat_state = CombatState.IDLE
+
+
+func _cancel_attack() -> void:
+	if combat_animation != null:
+		combat_animation.cancel()
+	_hitbox_enabled = false
+	combo_window_open = false
+	action_lock = 0.0
+
+
+func _sample_hitbox() -> void:
+	if current_attack == AttackType.SWORD:
+		_perform_attack(sword_range, sword_arc_deg, sword_damage, sword_knockback, 0.0, sword_max_targets, current_attack)
+	else:
+		_perform_attack(kick_range, kick_arc_deg, kick_damage, kick_knockback, kick_stun_time, 1, current_attack)
 
 
 ## Мгновенная проверка попадания: сфера вокруг гладиатора + фильтр по дуге.
@@ -287,7 +396,7 @@ func _perform_attack(atk_range: float, arc_deg: float, damage: float,
 		if body == null or not (body is Zombie):
 			continue
 		var z: Zombie = body
-		if not z.is_alive():
+		if not z.is_alive() or (_hitbox_enabled and z.get_instance_id() in _hit_targets):
 			continue
 		var to_t: Vector3 = z.global_position - global_position
 		to_t.y = 0.0
@@ -299,13 +408,16 @@ func _perform_attack(atk_range: float, arc_deg: float, damage: float,
 		candidates.append({"body": z, "dist": dist})
 
 	if candidates.is_empty():
-		attack_missed.emit(type)
 		return
 
 	candidates.sort_custom(func(a, b): return a["dist"] < b["dist"])
 
-	for i in mini(max_targets, candidates.size()):
+	var remaining := max_targets - _attack_hit_count if _hitbox_enabled else max_targets
+	for i in mini(remaining, candidates.size()):
 		var z: Zombie = candidates[i]["body"]
+		if _hitbox_enabled:
+			_hit_targets.append(z.get_instance_id())
+			_attack_hit_count += 1
 		var killed := z.take_damage(damage, global_position, knockback, stun)
 		dealt_damage.emit(damage, z, type)
 		if killed:
@@ -330,17 +442,29 @@ func take_damage(amount: float, source_position: Vector3, source: Node3D = null)
 		var to_src := source_position - global_position
 		to_src.y = 0.0
 		if to_src.length_squared() > 0.0001:
-			var angle := forward().angle_to(to_src.normalized())
+			var angle := guard_direction().angle_to(to_src.normalized())
 			if angle <= deg_to_rad(block_arc_deg) * 0.5:
 				blocked = true
 				final_damage = amount * (1.0 - block_damage_reduction)
 				damage_blocked.emit(amount - final_damage)
 				block_stamina -= block_stamina_hit_cost
-				_stagger_attacker(source)
+				if source is Zombie and _block_age <= parry_window and _parry_sources.get(source.get_instance_id(), -1) == source.attack_serial:
+					OnSuccessfulParry(source)
 				if block_stamina <= 0.0:
 					_break_guard()
 
 	health -= final_damage
+	if final_damage > 0.0:
+		var direction := global_position - source_position
+		direction.y = 0.0
+		direction = direction.normalized()
+		hit_reaction.emit(global_basis.inverse() * direction, final_damage >= 20.0)
+		_knockback = direction * (2.4 if final_damage >= 20.0 else 1.0)
+		# ActiveHit cannot be cancelled by input or a light flinch. Death wins.
+		if combat_state != CombatState.ACTIVE_HIT:
+			_cancel_attack()
+			stun_time = maxf(stun_time, hit_stagger_time)
+			combat_state = CombatState.STAGGER
 	took_damage.emit(final_damage, blocked)
 
 	if health <= 0.0:
@@ -351,15 +475,23 @@ func take_damage(amount: float, source_position: Vector3, source: Node3D = null)
 			_die()
 
 
-## Отбрасывает атакующего после удачного блока.
-func _stagger_attacker(source: Node3D) -> void:
-	if block_stagger_time <= 0.0 or source == null or not (source is Zombie):
-		return
-	var z: Zombie = source
-	if not z.is_alive():
-		return
-	z.stagger(block_stagger_time, global_position, block_knockback)
-	attacker_staggered.emit(z)
+func OnSuccessfulParry(source: Node3D) -> void:
+	if source is Zombie and source.is_alive():
+		source.stagger(parry_stagger_time, global_position, block_knockback)
+		_parry_sources.erase(source.get_instance_id())
+		attacker_staggered.emit(source)
+		successful_parry.emit(source)
+
+
+func guard_direction() -> Vector3:
+	var aim := intent_aim_direction
+	if is_instance_valid(aim_target):
+		aim = aim_target.global_position - global_position
+	aim.y = 0.0
+	if aim.length_squared() < 0.001:
+		return forward()
+	var yaw := clampf(forward().signed_angle_to(aim.normalized(), Vector3.UP), -PI / 3.0, PI / 3.0)
+	return forward().rotated(Vector3.UP, yaw)
 
 
 ## Возвращает, сколько здоровья РЕАЛЬНО восстановлено.
@@ -383,6 +515,8 @@ func needs_healing() -> bool:
 
 
 func _break_guard() -> void:
+	_cancel_attack()
+	combat_state = CombatState.STAGGER
 	block_stamina = 0.0
 	is_blocking = false
 	stun_time = maxf(stun_time, guard_break_stun)
@@ -391,6 +525,7 @@ func _break_guard() -> void:
 
 ## Падение вместо смерти: боец выбывает из боя, но остаётся на арене.
 func _enter_downed() -> void:
+	_cancel_attack()
 	_downed = true
 	is_blocking = false
 	velocity = Vector3.ZERO
@@ -412,6 +547,11 @@ func revive(amount: float = -1.0) -> bool:
 	kick_cd = 0.0
 	action_lock = 0.0
 	stun_time = 0.0
+	_cancel_attack()
+	combat_state = CombatState.IDLE
+	_knockback = Vector3.ZERO
+	_block_age = INF
+	_parry_sources.clear()
 	downed_time_left = 0.0
 	revived.emit(health)
 	return true
@@ -432,6 +572,7 @@ func _die() -> void:
 	if not _alive:
 		return
 	_alive = false
+	_cancel_attack()
 	# Обязательно снять: иначе боец остаётся одновременно мёртвым и
 	# «поднимаемым», и revive() воскрешает того, кто уже погиб окончательно.
 	_downed = false
@@ -458,6 +599,15 @@ func forward() -> Vector3:
 ## Полный сброс без пересоздания ноды - обязательное условие для RL:
 ## queue_free()/instantiate() на каждом эпизоде даёт просадку и фрагментацию памяти.
 func reset_state(spawn_transform: Transform3D) -> void:
+	_cancel_attack()
+	combat_state = CombatState.IDLE
+	_hit_targets.clear()
+	_attack_hit_count = 0
+	_knockback = Vector3.ZERO
+	_block_age = INF
+	_parry_sources.clear()
+	intent_aim_direction = Vector3.ZERO
+	aim_target = null
 	global_transform = spawn_transform
 	velocity = Vector3.ZERO
 	health = max_health

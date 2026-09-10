@@ -415,7 +415,7 @@ func get_observation() -> Array[float]:
 	_obs[i] = _g.get_kick_ready_ratio();      i += 1
 	_obs[i] = 1.0 if _g.is_blocking else 0.0; i += 1
 	_obs[i] = _g.get_stun_ratio();            i += 1
-	_obs[i] = clampf(_g.action_lock / maxf(_g.sword_lock_time, 0.001), 0.0, 1.0); i += 1
+	_obs[i] = 1.0 - _g.combat_animation.cursor if _g.combat_animation.running else 0.0; i += 1
 
 	# --- Ближайший враг (6) ---
 	#

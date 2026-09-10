@@ -16,9 +16,11 @@ extends Node3D
 
 var _pool: Array[AudioStreamPlayer3D] = []
 var _next: int = 0
+var _rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
+	_rng.randomize()
 	for i in voices:
 		var p := AudioStreamPlayer3D.new()
 		p.max_distance = max_distance
@@ -31,7 +33,7 @@ func _ready() -> void:
 ## pitch_jitter обязателен для часто повторяющихся звуков: одинаковый питч
 ## подряд слышится как заедающая пластинка, а не как серия ударов.
 func play(stream: AudioStream, volume_db: float = 0.0, pitch_jitter: float = 0.12) -> void:
-	if stream == null or _pool.is_empty():
+	if not can_process() or stream == null or _pool.is_empty():
 		return
 
 	var p := _pool[_next]
@@ -39,5 +41,5 @@ func play(stream: AudioStream, volume_db: float = 0.0, pitch_jitter: float = 0.1
 
 	p.stream = stream
 	p.volume_db = volume_db
-	p.pitch_scale = randf_range(1.0 - pitch_jitter, 1.0 + pitch_jitter)
+	p.pitch_scale = _rng.randf_range(1.0 - pitch_jitter, 1.0 + pitch_jitter)
 	p.play()

@@ -74,13 +74,39 @@ func run() -> void:
 		verify(shield.global_position.y > 1.1, "shield fails to cover chest")
 		var hand_position: Vector3 = v._elbow_l.global_transform * Vector3(0, -0.335, -0.025)
 		verify(shield.to_local(hand_position).y > 0.10, "hand protrudes through shield face")
+		for yaw in [-0.8, 0.0, 0.8]:
+			for pitch in [-0.3, 0.0, 0.3]:
+				g.intent_aim_direction = Vector3.FORWARD.rotated(Vector3.RIGHT, pitch).rotated(Vector3.UP, yaw)
+				g.velocity = Vector3.RIGHT * 2.0
+				for frame in fps:
+					v._process(delta)
+				var facing := -shield.global_basis.y.normalized()
+				verify(facing.dot(g.intent_aim_direction) > 0.98, "shield fails to track aim while strafing")
+				var wrist: Vector3 = v._elbow_l.global_transform * Vector3(0, -0.335, -0.025)
+				verify(shield.to_local(wrist).y > 0.10, "IK pushes fingers through shield")
+				verify(v._elbow_l.global_position.distance_to(v._arm_l.global_position) < 0.331, "IK stretches upper arm")
+		g.intent_aim_direction = Vector3.ZERO
+		g.velocity = Vector3.ZERO
 		g.is_blocking = false
-		for attack in [Gladiator.AttackType.SWORD, Gladiator.AttackType.KICK]:
-			g.attack_started.emit(attack)
+		for frame in fps:
+			v._process(delta)
+		var contact_tips: Array[Vector3] = []
+		for attack in [Gladiator.AttackType.SWORD, Gladiator.AttackType.SWORD,
+				Gladiator.AttackType.SWORD, Gladiator.AttackType.SWORD, Gladiator.AttackType.KICK]:
+			g._begin_attack(attack)
+			g._tick_combat(g.sword_windup if attack == Gladiator.AttackType.SWORD else g.kick_windup)
+			v._process(0.0)
+			if attack == Gladiator.AttackType.SWORD:
+				verify(v._sword_swing == contact_tips.size(), "sword sequence skips a variant")
+				var tip: Vector3 = v._blade.global_transform * Vector3(0, 0.32, 0)
+				for previous_tip in contact_tips:
+					verify(tip.distance_to(previous_tip) > 0.10, "sword variants have indistinguishable contact poses")
+				contact_tips.append(tip)
 			v._process(delta)
 			if attack == Gladiator.AttackType.KICK:
 				verify(v.get_node("Body/LegR/Knee/Foot").global_position.z < -0.4, "kick points backwards")
 			for frame in fps:
+				g._tick_combat(delta)
 				v._process(delta)
 				if attack == Gladiator.AttackType.SWORD and v._attack_t >= 0:
 					for point in [Vector3(0, -0.28, 0), Vector3.ZERO, Vector3(0, 0.32, 0)]:
@@ -90,8 +116,11 @@ func run() -> void:
 			verify(v._attack_t < 0 and v._kick_t < 0, "attack animation fails to complete")
 			verify(not v._slash_trail.visible, "trail remains after attack")
 			verify(v._arm_r.rotation_degrees.distance_to(v.REST_ARM_R) < 0.01, "sword arm retains attack pose")
-		g.attack_started.emit(Gladiator.AttackType.SWORD)
+			verify(v._wrist_degrees.distance_to(v.REST_SWORD) < 0.01, "sword wrist retains attack pose")
+		g._begin_attack(Gladiator.AttackType.SWORD)
+		verify(v._sword_swing == v.SwordSwing.DIAGONAL, "sword sequence fails to wrap")
 		g._alive = false
+		g._cancel_attack()
 		for frame in fps:
 			v._process(delta)
 		verify(not v._slash_trail.visible, "trail remains on corpse")
@@ -100,7 +129,7 @@ func run() -> void:
 		v._process(delta)
 		verify(v._death_t == 0 and v._attack_t < 0 and v._kick_t < 0, "revive retains transient state")
 		verify(v._pivot.rotation.length() < 0.001, "revive retains death rotation")
-		# Actual FSM timer drives windup and recovery, including their boundary.
+		# Actual AnimationPlayer events drive all three attack phases.
 		for variant in [Zombie.Variant.NORMAL, Zombie.Variant.RUNNER, Zombie.Variant.BRUTE]:
 			z.variant = variant
 			z.state = Zombie.State.IDLE
@@ -111,16 +140,14 @@ func run() -> void:
 			verify(zv._brute_growth.visible == (variant == Zombie.Variant.BRUTE), "variant retains wrong geometry")
 			var previous: Vector3 = zv._arm_r.rotation_degrees
 			var max_jump := 0.0
-			for state in [Zombie.State.WINDUP, Zombie.State.RECOVER]:
-				z.state = state
-				var duration: float = z.attack_windup if state == Zombie.State.WINDUP else z.attack_recover
-				var frames := int(ceil(duration * fps))
-				for frame in frames + 1:
-					z._timer = maxf(0, duration - frame * delta)
-					zv._process(delta)
-					max_jump = maxf(max_jump, previous.distance_to(zv._arm_r.rotation_degrees))
-					previous = zv._arm_r.rotation_degrees
-			verify(max_jump < 25, "zombie attack snaps at %d fps: %f degrees" % [fps, max_jump])
+			z._active = true
+			z._begin_attack()
+			for frame in int(ceil(z.combat_animation.duration * fps)) + 2:
+				z.combat_animation.step(delta, 1)
+				zv._process(delta)
+				max_jump = maxf(max_jump, previous.distance_to(zv._arm_r.rotation_degrees))
+				previous = zv._arm_r.rotation_degrees
+			verify(max_jump < 40, "zombie attack snaps at %d fps: %f degrees" % [fps, max_jump])
 			z.state = Zombie.State.DEAD
 			for frame in fps:
 				zv._process(delta)

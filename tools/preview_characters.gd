@@ -114,23 +114,29 @@ func animate_demo(delta: float) -> void:
 	g.is_blocking = stage == 2
 	g.stun_time = 0.6 if stage == 5 else 0.0
 	if stage == 2:
-		var attack_t := fmod(elapsed - 4.0, z.attack_windup + z.attack_recover)
-		z.state = Zombie.State.WINDUP if attack_t < z.attack_windup else Zombie.State.RECOVER
-		z._timer = z.attack_windup - attack_t if attack_t < z.attack_windup else z.attack_windup + z.attack_recover - attack_t
+		z._active = true
+		if not z.combat_animation.running:
+			z._begin_attack()
+		z.combat_animation.step(delta, 1)
 	elif stage == 5:
 		z.state = Zombie.State.STAGGER
 	elif stage < 6:
 		z.state = Zombie.State.CHASE if stage == 1 else Zombie.State.IDLE
 	if stage != previous_stage:
+		if stage != 2:
+			z._cancel_attack()
 		if stage == 3:
-			g.attack_started.emit(Gladiator.AttackType.SWORD)
+			g._begin_attack(Gladiator.AttackType.SWORD)
 		if stage == 4:
-			g.attack_started.emit(Gladiator.AttackType.KICK)
+			g._begin_attack(Gladiator.AttackType.KICK)
 		if stage == 5:
 			g.took_damage.emit(10, false)
 			z.damaged.emit(10)
+			g.hit_reaction.emit(Vector3.BACK, false)
+			z.hit_reaction.emit(Vector3.BACK, false)
 		if stage == 6:
 			g._alive = false
+			g._cancel_attack()
 			z.state = Zombie.State.DEAD
 		if stage == 7:
 			g._alive = true
@@ -138,6 +144,8 @@ func animate_demo(delta: float) -> void:
 			z.state = Zombie.State.IDLE
 			z.respawned.emit()
 		previous_stage = stage
+	g._tick_timers(delta)
+	g._tick_combat(delta)
 	gv._process(delta)
 	zv._process(delta)
 	z.get_node("Visuals/HealthBar3D").hide()

@@ -76,6 +76,15 @@ func run() -> void:
 	fx.clear_effects()
 	for burst in fx._bursts:
 		check(not burst.visible, "arena reset retains blood")
+	z._die()
+	await process_frame
+	await process_frame
+	check(z.retiring and z.visible and not z.is_alive() and z.collision_layer == 0,
+		"dead enemy must finish falling visibly without collision or gameplay activity")
+	z.get_node("Visuals")._process(1.3)
+	check(not z.retiring and not z.visible, "finished death animation must return corpse to pool")
+	z.activate(Transform3D.IDENTITY, arena.gladiator)
+	check(z.get_node("Visuals")._death_t == 0 and not z.retiring, "reused corpse retains death animation")
 	var quiet: Arena = load("res://scenes/Arena.tscn").instantiate()
 	quiet.visuals_enabled = false
 	quiet.pool_size = 1

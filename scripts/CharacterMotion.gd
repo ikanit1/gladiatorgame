@@ -24,3 +24,23 @@ static func leg(hip: Node3D, knee: Node3D, phase: float, amount: float,
 
 static func weight(delta: float, rate := 12.0) -> float:
 	return 1.0 - exp(-maxf(delta, 0.0) * rate)
+
+
+## Two-bone arm IK. The pole keeps the elbow outside the rib cage;
+## unreachable targets are clamped rather than stretching the forearm.
+static func arm(shoulder: Node3D, elbow: Node3D, target: Vector3,
+		pole: Vector3, amount: float, upper := 0.33, lower := 0.335) -> void:
+	var offset := target - shoulder.position
+	var distance := clampf(offset.length(), absf(upper - lower) + 0.01, upper + lower - 0.005)
+	var direction := offset.normalized()
+	var bend_dir := (pole - direction * pole.dot(direction)).normalized()
+	if direction.is_zero_approx() or bend_dir.is_zero_approx():
+		return
+	var angle := acos(clampf((upper * upper + distance * distance - lower * lower) / (2 * upper * distance), -1, 1))
+	var upper_dir := direction * cos(angle) - bend_dir * sin(angle)
+	var x := direction.cross(bend_dir).normalized()
+	var y := -upper_dir
+	var desired := Basis(x, y, x.cross(y)).orthonormalized()
+	shoulder.quaternion = shoulder.quaternion.slerp(desired.get_rotation_quaternion(), amount)
+	var bend := PI - acos(clampf((upper * upper + lower * lower - distance * distance) / (2 * upper * lower), -1, 1))
+	elbow.rotation.x = lerpf(elbow.rotation.x, bend, amount)

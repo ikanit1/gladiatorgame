@@ -223,19 +223,7 @@ static func gladiator(visual: Node3D) -> void:
 	blade.material_override = blade_source.material_override
 	blade_source.free()
 	body.get_node("Head/Skull").material_override = material("face_shadow", Color("69513d"))
-	var shield: Node3D = body.get_node("ArmL/Shield")
-	shield.get_node("ShieldModel").hide()
-	# Shield pivot retains the established arm compensation; the new face lies
-	# in its local XZ plane, with the outward surface pointing down local Y.
-	var board := PV.cylinder(shield, "ShieldFace", 0.36, 0.048, Vector3.ZERO, bronze)
-	board.mesh.radial_segments = 48
-	PV.torus(shield, "ShieldRim", 0.337, 0.367, Vector3(0, -0.026, 0), trim)
-	PV.torus(shield, "InnerRim", 0.266, 0.273, Vector3(0, -0.03, 0), trim)
-	ellipsoid(shield, "ShieldBoss", Vector3(0, -0.035, 0), Vector3(0.105, 0.07, 0.105), trim)
-	for i in 12:
-		var angle := TAU * i / 12.0
-		ellipsoid(shield, "Rivet", Vector3(cos(angle) * 0.317, -0.029, sin(angle) * 0.317),
-			Vector3(0.013, 0.009, 0.013), trim)
+	# Keep the imported ShieldModel and its original materials from the scene.
 	# Give the existing imported helmet the same aged finish as the cuirass.
 	for mesh in body.get_node("Head/HelmetModel").find_children("*", "MeshInstance3D", true, false):
 		for surface in mesh.mesh.get_surface_count():
