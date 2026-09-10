@@ -1,0 +1,37 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/Torch.gd" id="1_torch"]
+[ext_resource type="Material" path="res://materials/m_flame.tres" id="2_flame"]
+[ext_resource type="Material" path="res://materials/m_dark_metal.tres" id="3_dark"]
+
+[sub_resource type="CylinderMesh" id="t_bowl"]
+material = ExtResource("3_dark")
+top_radius = 0.26
+bottom_radius = 0.13
+height = 0.3
+radial_segments = 10
+rings = 1
+
+[sub_resource type="SphereMesh" id="t_flame"]
+material = ExtResource("2_flame")
+radius = 0.19
+height = 0.42
+radial_segments = 8
+rings = 4
+
+[node name="Torch" type="Node3D"]
+script = ExtResource("1_torch")
+
+[node name="Bowl" type="MeshInstance3D" parent="."]
+mesh = SubResource("t_bowl")
+
+[node name="Flame" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.26, 0)
+mesh = SubResource("t_flame")
+
+[node name="Light" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+light_color = Color(1, 0.68, 0.36, 1)
+light_energy = 3.2
+omni_range = 14.0
+shadow_enabled = false

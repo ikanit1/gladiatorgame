@@ -1,0 +1,180 @@
+[gd_scene load_steps=19 format=3]
+
+[ext_resource type="Script" path="res://scripts/Arena.gd" id="1_arena"]
+[ext_resource type="Script" path="res://scripts/ArenaSfx.gd" id="8_asfx"]
+[ext_resource type="Script" path="res://scripts/fx/CombatFX.gd" id="10_fx"]
+[ext_resource type="PackedScene" path="res://scenes/Zombie.tscn" id="2_zombie"]
+[ext_resource type="PackedScene" path="res://scenes/Potion.tscn" id="9_potion"]
+[ext_resource type="PackedScene" path="res://scenes/Gladiator.tscn" id="3_gladiator"]
+[ext_resource type="PackedScene" path="res://scenes/Torch.tscn" id="4_torch"]
+[ext_resource type="Material" path="res://materials/m_sand.tres" id="5_sand"]
+[ext_resource type="Material" path="res://materials/m_stone.tres" id="6_stone"]
+[ext_resource type="Material" path="res://materials/m_stone_dark.tres" id="7_stone_dark"]
+
+[sub_resource type="BoxShape3D" id="Shape_floor"]
+size = Vector3(24, 0.5, 24)
+
+[sub_resource type="BoxShape3D" id="Shape_wall_ns"]
+size = Vector3(26, 3, 1)
+
+[sub_resource type="BoxShape3D" id="Shape_wall_ew"]
+size = Vector3(1, 3, 26)
+
+[sub_resource type="PlaneMesh" id="Mesh_floor"]
+material = ExtResource("5_sand")
+size = Vector2(26, 26)
+subdivide_width = 4
+subdivide_depth = 4
+
+[sub_resource type="BoxMesh" id="Mesh_wall_ns"]
+material = ExtResource("6_stone")
+size = Vector3(26, 3, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_wall_ew"]
+material = ExtResource("6_stone")
+size = Vector3(1, 3, 26)
+
+[sub_resource type="BoxMesh" id="Mesh_cap_ns"]
+material = ExtResource("7_stone_dark")
+size = Vector3(26.4, 0.35, 1.4)
+
+[sub_resource type="BoxMesh" id="Mesh_cap_ew"]
+material = ExtResource("7_stone_dark")
+size = Vector3(1.4, 0.35, 26.4)
+
+[sub_resource type="CylinderMesh" id="Mesh_column"]
+material = ExtResource("6_stone")
+top_radius = 0.5
+bottom_radius = 0.6
+height = 4.4
+radial_segments = 10
+rings = 1
+
+[sub_resource type="BoxMesh" id="Mesh_capital"]
+material = ExtResource("7_stone_dark")
+size = Vector3(1.5, 0.4, 1.5)
+
+[node name="Arena" type="Node3D"]
+script = ExtResource("1_arena")
+zombie_scene = ExtResource("2_zombie")
+potion_scene = ExtResource("9_potion")
+gladiator_scene = ExtResource("3_gladiator")
+
+[node name="Environment" type="StaticBody3D" parent="."]
+collision_layer = 1
+collision_mask = 0
+
+[node name="FloorShape" type="CollisionShape3D" parent="Environment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
+shape = SubResource("Shape_floor")
+
+[node name="WallNorth" type="CollisionShape3D" parent="Environment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -12.5)
+shape = SubResource("Shape_wall_ns")
+
+[node name="WallSouth" type="CollisionShape3D" parent="Environment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 12.5)
+shape = SubResource("Shape_wall_ns")
+
+[node name="WallEast" type="CollisionShape3D" parent="Environment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 1.5, 0)
+shape = SubResource("Shape_wall_ew")
+
+[node name="WallWest" type="CollisionShape3D" parent="Environment"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 1.5, 0)
+shape = SubResource("Shape_wall_ew")
+
+[node name="Decor" type="Node3D" parent="."]
+
+[node name="Floor" type="MeshInstance3D" parent="Decor"]
+mesh = SubResource("Mesh_floor")
+
+[node name="WallNorth" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -12.5)
+mesh = SubResource("Mesh_wall_ns")
+
+[node name="WallSouth" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 12.5)
+mesh = SubResource("Mesh_wall_ns")
+
+[node name="WallEast" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 1.5, 0)
+mesh = SubResource("Mesh_wall_ew")
+
+[node name="WallWest" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 1.5, 0)
+mesh = SubResource("Mesh_wall_ew")
+
+[node name="CapNorth" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.17, -12.5)
+mesh = SubResource("Mesh_cap_ns")
+
+[node name="CapSouth" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.17, 12.5)
+mesh = SubResource("Mesh_cap_ns")
+
+[node name="CapEast" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 3.17, 0)
+mesh = SubResource("Mesh_cap_ew")
+
+[node name="CapWest" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 3.17, 0)
+mesh = SubResource("Mesh_cap_ew")
+
+[node name="ColumnNE" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 2.2, -12.5)
+mesh = SubResource("Mesh_column")
+
+[node name="CapitalNE" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 4.6, -12.5)
+mesh = SubResource("Mesh_capital")
+
+[node name="ColumnNW" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 2.2, -12.5)
+mesh = SubResource("Mesh_column")
+
+[node name="CapitalNW" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 4.6, -12.5)
+mesh = SubResource("Mesh_capital")
+
+[node name="ColumnSE" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 2.2, 12.5)
+mesh = SubResource("Mesh_column")
+
+[node name="CapitalSE" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 4.6, 12.5)
+mesh = SubResource("Mesh_capital")
+
+[node name="ColumnSW" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 2.2, 12.5)
+mesh = SubResource("Mesh_column")
+
+[node name="CapitalSW" type="MeshInstance3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 4.6, 12.5)
+mesh = SubResource("Mesh_capital")
+
+[node name="TorchNE" parent="Decor" instance=ExtResource("4_torch")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 4.95, -12.5)
+
+[node name="TorchNW" parent="Decor" instance=ExtResource("4_torch")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 4.95, -12.5)
+
+[node name="TorchSE" parent="Decor" instance=ExtResource("4_torch")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.5, 4.95, 12.5)
+
+[node name="TorchSW" parent="Decor" instance=ExtResource("4_torch")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 4.95, 12.5)
+
+[node name="Sfx" type="Node3D" parent="Decor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+script = ExtResource("8_asfx")
+voices = 2
+max_distance = 200.0
+unit_size = 40.0
+
+[node name="CombatFX" type="Node3D" parent="Decor"]
+script = ExtResource("10_fx")
+
+[node name="Gladiator" parent="." instance=ExtResource("3_gladiator")]
+
+[node name="Zombies" type="Node3D" parent="."]

@@ -1,0 +1,120 @@
+extends SpringArm3D
+
+## Камера от третьего лица за спиной бойца.
+##
+## SpringArm3D взят не для красоты: он сам подтягивает камеру, когда между ней
+## и бойцом оказывается стена. Без него на краю арены камера уходила бы
+## за каменную кладку и показывала темноту.
+##
+## Поворот персонажа остаётся ЗА МЕХАНИКОЙ: мышь пишет в intent_turn, а не
+## крутит тело напрямую. Иначе игрок обходил бы ограничение turn_speed_deg
+## и мог мгновенно развернуться там, где обученный агент физически не успевает.
+
+@export var target_path: NodePath
+@export var height: float = 1.55         ## точка, вокруг которой вращаемся
+@export var distance: float = 4.6
+@export var pitch_min_deg: float = -55.0
+@export var pitch_max_deg: float = 22.0
+@export var follow_speed: float = 14.0
+@export var mouse_sensitivity: float = 0.0022
+
+@export_group("Тряска")
+@export var shake_decay: float = 3.2
+@export var shake_angle_deg: float = 1.9   ## максимальный доворот на пике
+@export var shake_angle_kick: float = 2.6  ## доворот по крену, он читается сильнее всего
+
+var _target: Node3D
+var _pitch: float = -0.28
+## Собственный угол камеры. Раньше она жёстко копировала поворот бойца, и
+## «относительно камеры» означало «относительно персонажа» - при таком раскладе
+## нормальное WASD невозможно в принципе.
+var _yaw: float = 0.0
+var _shake: float = 0.0
+var _shake_seed: float = 0.0
+var _cam: Camera3D
+
+
+func _ready() -> void:
+	spring_length = distance
+	# Луч не должен цепляться за самого бойца и за врагов - только за стены
+	collision_mask = 1
+	_cam = get_node_or_null("Camera3D") as Camera3D
+	_shake_seed = randf() * 100.0
+	if target_path != NodePath():
+		set_target(get_node_or_null(target_path) as Node3D)
+
+
+## Куда смотрит камера по горизонтали. По этому углу PlayerInput строит
+## направление движения.
+func get_yaw() -> float:
+	return _yaw
+
+
+## Толчок камеры. Значения складываются не суммой, а максимумом: серия ударов
+## подряд не должна копиться в неуправляемую болтанку.
+func shake(amount: float) -> void:
+	_shake = maxf(_shake, clampf(amount, 0.0, 1.0))
+
+
+func set_target(node: Node3D) -> void:
+	_target = node
+	set_process(node != null)
+	if node != null:
+		global_position = node.global_position + Vector3.UP * height
+		# Стартуем за спиной бойца, а не в случайную сторону
+		_yaw = node.global_rotation.y
+		add_excluded_object(node.get_rid())
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and _mouse_captured():
+		_yaw = wrapf(_yaw - event.relative.x * mouse_sensitivity, -PI, PI)
+		_pitch = clampf(_pitch - event.relative.y * mouse_sensitivity,
+			deg_to_rad(pitch_min_deg), deg_to_rad(pitch_max_deg))
+
+
+func _process(delta: float) -> void:
+	if _target == null or not is_instance_valid(_target):
+		return
+
+	var desired := _target.global_position + Vector3.UP * height
+	# Экспоненциальное сглаживание позиции, но НЕ поворота: камера должна
+	# отвечать на мышь мгновенно, иначе прицеливание ощущается ватным.
+	var k := 1.0 - exp(-follow_speed * delta)
+	global_position = global_position.lerp(desired, k)
+
+	rotation.y = _yaw
+	rotation.x = _pitch
+	rotation.z = 0.0
+
+	_apply_shake(delta)
+
+
+func _apply_shake(delta: float) -> void:
+	if _cam == null:
+		return
+
+	if _shake <= 0.001:
+		_shake = 0.0
+		_cam.rotation = Vector3.ZERO
+		return
+
+	# ТОЛЬКО поворот камеры, никаких присваиваний position.
+	# SpringArm3D сам расставляет дочерние узлы вдоль своей оси Z по результату
+	# проверки на столкновение. Запись в _cam.position обнуляла эту координату,
+	# и камера схлопывалась в точку крепления - то есть внутрь гладиатора.
+	var t := float(Time.get_ticks_msec()) * 0.001 + _shake_seed
+	# Квадрат затухания: пик резкий, хвост короткий - иначе картинка "плывёт"
+	var k := _shake * _shake
+	var ang := deg_to_rad(shake_angle_deg) * k
+
+	_cam.rotation = Vector3(
+		sin(t * 47.0) * ang,
+		sin(t * 39.0 + 1.7) * ang,
+		sin(t * 53.0 + 0.9) * deg_to_rad(shake_angle_kick) * k)
+
+	_shake = move_toward(_shake, 0.0, shake_decay * delta)
+
+
+static func _mouse_captured() -> bool:
+	return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED

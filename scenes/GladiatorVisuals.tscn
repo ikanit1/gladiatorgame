@@ -1,0 +1,250 @@
+[gd_scene load_steps=28 format=3]
+
+[ext_resource type="Script" path="res://scripts/GladiatorVisuals.gd" id="1_vis"]
+[ext_resource type="Script" path="res://scripts/SfxPlayer.gd" id="9_sfx"]
+[ext_resource type="PackedScene" path="res://assets/3d/helmet.glb" id="12_helmet"]
+[ext_resource type="PackedScene" path="res://assets/3d/shield.glb" id="13_shield"]
+[ext_resource type="Material" path="res://materials/m_bronze.tres" id="2_bronze"]
+[ext_resource type="Material" path="res://materials/m_steel.tres" id="3_steel"]
+[ext_resource type="Material" path="res://materials/m_dark_metal.tres" id="4_dark"]
+[ext_resource type="Material" path="res://materials/m_leather.tres" id="5_leather"]
+[ext_resource type="Material" path="res://materials/m_cloth_red.tres" id="6_cloth"]
+[ext_resource type="Material" path="res://materials/m_skin.tres" id="7_skin"]
+[ext_resource type="Material" path="res://materials/m_wood.tres" id="8_wood"]
+
+[sub_resource type="CapsuleMesh" id="m_leg"]
+material = ExtResource("7_skin")
+radius = 0.095
+height = 0.8
+radial_segments = 12
+rings = 3
+
+[sub_resource type="CylinderMesh" id="m_greave"]
+material = ExtResource("2_bronze")
+top_radius = 0.095
+bottom_radius = 0.13
+height = 0.22
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="m_skirt"]
+material = ExtResource("6_cloth")
+top_radius = 0.22
+bottom_radius = 0.31
+height = 0.36
+radial_segments = 12
+
+[sub_resource type="BoxMesh" id="m_belt"]
+material = ExtResource("5_leather")
+size = Vector3(0.5, 0.1, 0.34)
+
+[sub_resource type="CylinderMesh" id="m_torso"]
+material = ExtResource("2_bronze")
+top_radius = 0.2
+bottom_radius = 0.29
+height = 0.42
+radial_segments = 12
+
+[sub_resource type="BoxMesh" id="m_neck"]
+material = ExtResource("7_skin")
+size = Vector3(0.16, 0.09, 0.16)
+
+[sub_resource type="SphereMesh" id="m_skull"]
+material = ExtResource("7_skin")
+radius = 0.14
+height = 0.29
+radial_segments = 12
+rings = 8
+
+[sub_resource type="SphereMesh" id="m_helmet"]
+material = ExtResource("2_bronze")
+radius = 0.16
+height = 0.22
+radial_segments = 12
+rings = 6
+
+[sub_resource type="BoxMesh" id="m_crest"]
+material = ExtResource("6_cloth")
+size = Vector3(0.06, 0.15, 0.32)
+
+[sub_resource type="BoxMesh" id="m_visor"]
+material = ExtResource("2_bronze")
+size = Vector3(0.22, 0.13, 0.05)
+
+[sub_resource type="CapsuleMesh" id="m_upperarm"]
+material = ExtResource("7_skin")
+radius = 0.078
+height = 0.36
+radial_segments = 10
+rings = 3
+
+[sub_resource type="BoxMesh" id="m_pauldron"]
+material = ExtResource("2_bronze")
+size = Vector3(0.2, 0.16, 0.22)
+
+[sub_resource type="BoxMesh" id="m_bracer"]
+material = ExtResource("2_bronze")
+size = Vector3(0.16, 0.14, 0.17)
+
+[sub_resource type="CapsuleMesh" id="m_forearm"]
+material = ExtResource("7_skin")
+radius = 0.068
+height = 0.3
+radial_segments = 10
+rings = 3
+
+[sub_resource type="BoxMesh" id="m_grip"]
+material = ExtResource("5_leather")
+size = Vector3(0.05, 0.18, 0.05)
+
+[sub_resource type="BoxMesh" id="m_guard"]
+material = ExtResource("3_steel")
+size = Vector3(0.24, 0.04, 0.07)
+
+[sub_resource type="BoxMesh" id="m_blade"]
+material = ExtResource("3_steel")
+size = Vector3(0.08, 0.56, 0.026)
+
+[sub_resource type="BoxMesh" id="m_pommel"]
+material = ExtResource("4_dark")
+size = Vector3(0.07, 0.06, 0.07)
+
+[sub_resource type="CylinderMesh" id="m_shield_board"]
+material = ExtResource("8_wood")
+top_radius = 0.34
+bottom_radius = 0.34
+height = 0.06
+radial_segments = 12
+rings = 1
+
+[sub_resource type="TorusMesh" id="m_shield_rim"]
+material = ExtResource("2_bronze")
+inner_radius = 0.31
+outer_radius = 0.36
+rings = 12
+ring_segments = 5
+
+[sub_resource type="SphereMesh" id="m_shield_boss"]
+material = ExtResource("4_dark")
+radius = 0.09
+height = 0.14
+radial_segments = 10
+rings = 5
+
+[node name="GladiatorVisuals" type="Node3D"]
+script = ExtResource("1_vis")
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="LegL" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.13, 0.88, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/LegL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.4, 0)
+mesh = SubResource("m_leg")
+
+[node name="Greave" type="MeshInstance3D" parent="Body/LegL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.62, 0.01)
+mesh = SubResource("m_greave")
+
+[node name="LegR" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.13, 0.88, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/LegR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.4, 0)
+mesh = SubResource("m_leg")
+
+[node name="Greave" type="MeshInstance3D" parent="Body/LegR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.62, 0.01)
+mesh = SubResource("m_greave")
+
+[node name="Skirt" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.92, 0)
+mesh = SubResource("m_skirt")
+
+[node name="Belt" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.09, 0)
+mesh = SubResource("m_belt")
+
+[node name="Torso" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.32, 0)
+mesh = SubResource("m_torso")
+
+[node name="Neck" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.57, 0)
+mesh = SubResource("m_neck")
+
+[node name="Head" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.72, 0)
+
+[node name="Skull" type="MeshInstance3D" parent="Body/Head"]
+mesh = SubResource("m_skull")
+
+[node name="ArmR" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.34, 1.44, 0)
+
+[node name="Pauldron" type="MeshInstance3D" parent="Body/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.02, 0.02, 0)
+mesh = SubResource("m_pauldron")
+
+[node name="UpperArm" type="MeshInstance3D" parent="Body/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.18, 0)
+mesh = SubResource("m_upperarm")
+
+[node name="Bracer" type="MeshInstance3D" parent="Body/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.37, 0)
+mesh = SubResource("m_bracer")
+
+[node name="Forearm" type="MeshInstance3D" parent="Body/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.56, 0)
+mesh = SubResource("m_forearm")
+
+[node name="Sword" type="Node3D" parent="Body/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.72, 0)
+
+[node name="Grip" type="MeshInstance3D" parent="Body/ArmR/Sword"]
+mesh = SubResource("m_grip")
+
+[node name="Pommel" type="MeshInstance3D" parent="Body/ArmR/Sword"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.11, 0)
+mesh = SubResource("m_pommel")
+
+[node name="Guard" type="MeshInstance3D" parent="Body/ArmR/Sword"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.11, 0)
+mesh = SubResource("m_guard")
+
+[node name="Blade" type="MeshInstance3D" parent="Body/ArmR/Sword"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.41, 0)
+mesh = SubResource("m_blade")
+
+[node name="ArmL" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.34, 1.44, 0)
+
+[node name="Pauldron" type="MeshInstance3D" parent="Body/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.02, 0.02, 0)
+mesh = SubResource("m_pauldron")
+
+[node name="UpperArm" type="MeshInstance3D" parent="Body/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.18, 0)
+mesh = SubResource("m_upperarm")
+
+[node name="Bracer" type="MeshInstance3D" parent="Body/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.37, 0)
+mesh = SubResource("m_bracer")
+
+[node name="Forearm" type="MeshInstance3D" parent="Body/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.52, 0)
+mesh = SubResource("m_forearm")
+
+[node name="Shield" type="Node3D" parent="Body/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.62, -0.08)
+
+[node name="Sfx" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+script = ExtResource("9_sfx")
+voices = 5
+
+[node name="HelmetModel" parent="Body/Head" instance=ExtResource("12_helmet")]
+transform = Transform3D(-0.62, 0, 0, 0, 0.62, 0, 0, 0, -0.62, 0, 0.02, 0)
+
+[node name="ShieldModel" parent="Body/ArmL/Shield" instance=ExtResource("13_shield")]
+transform = Transform3D(0.85, 0, 0, 0, 0.85, 0, 0, 0, 0.85, 0, 0, 0)

@@ -1,0 +1,52 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/Potion.gd" id="1_potion"]
+[ext_resource type="Material" path="res://materials/m_potion_glass.tres" id="2_glass"]
+[ext_resource type="Material" path="res://materials/m_potion_liquid.tres" id="3_liquid"]
+[ext_resource type="Material" path="res://materials/m_potion_cork.tres" id="4_cork"]
+
+[sub_resource type="CylinderMesh" id="p_body"]
+material = ExtResource("2_glass")
+top_radius = 0.13
+bottom_radius = 0.17
+height = 0.3
+radial_segments = 10
+rings = 1
+
+[sub_resource type="SphereMesh" id="p_liquid"]
+material = ExtResource("3_liquid")
+radius = 0.12
+height = 0.2
+radial_segments = 10
+rings = 6
+
+[sub_resource type="CylinderMesh" id="p_cork"]
+material = ExtResource("4_cork")
+top_radius = 0.05
+bottom_radius = 0.06
+height = 0.09
+radial_segments = 8
+rings = 1
+
+[node name="Potion" type="Node3D"]
+script = ExtResource("1_potion")
+
+[node name="Visual" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 0)
+
+[node name="Body" type="MeshInstance3D" parent="Visual"]
+mesh = SubResource("p_body")
+
+[node name="Liquid" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.04, 0)
+mesh = SubResource("p_liquid")
+
+[node name="Cork" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.19, 0)
+mesh = SubResource("p_cork")
+
+[node name="Glow" type="OmniLight3D" parent="Visual"]
+light_color = Color(1, 0.42, 0.5, 1)
+light_energy = 1.6
+omni_range = 4.5
+shadow_enabled = false

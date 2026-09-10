@@ -1,0 +1,20 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://bpnmpj7iagru8"]
+
+[sub_resource type="Gradient" id="grad"]
+colors = PackedColorArray(0.84, 0.84, 0.84, 1, 1, 1, 1, 1)
+
+[sub_resource type="FastNoiseLite" id="noise"]
+noise_type = 3
+frequency = 0.05
+fractal_octaves = 3
+
+[sub_resource type="NoiseTexture2D" id="tex"]
+noise = SubResource("noise")
+color_ramp = SubResource("grad")
+seamless = true
+
+[resource]
+albedo_color = Color(0.5, 0.5, 0.51, 1)
+albedo_texture = SubResource("tex")
+roughness = 0.95
+uv1_scale = Vector3(3, 3, 1)

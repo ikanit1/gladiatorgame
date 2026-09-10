@@ -1,0 +1,4 @@
+[gd_scene format=3]
+[ext_resource type="Script" path="res://tools/preview_fortress.gd" id="1"]
+[node name="PreviewFortress" type="Node3D"]
+script = ExtResource("1")

@@ -1,0 +1,17 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/rl/TrainingWorld.gd" id="1_world"]
+[ext_resource type="PackedScene" path="res://scenes/Arena.tscn" id="2_arena"]
+[ext_resource type="Script" path="res://addons/godot_rl_agents/sync.gd" id="3_sync"]
+
+[node name="Training" type="Node3D"]
+script = ExtResource("1_world")
+arena_scene = ExtResource("2_arena")
+grid_cols = 4
+grid_rows = 4
+spacing = 40.0
+
+[node name="Sync" type="Node" parent="."]
+script = ExtResource("3_sync")
+action_repeat = 8
+speed_up = 8.0

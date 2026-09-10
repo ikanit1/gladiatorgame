@@ -1,0 +1,26 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/HealthBar3D.gd" id="1_hb"]
+[ext_resource type="Material" path="res://materials/m_hp_back.tres" id="2_back"]
+[ext_resource type="Material" path="res://materials/m_hp_fill.tres" id="3_fill"]
+
+[sub_resource type="QuadMesh" id="q_back"]
+size = Vector2(0.72, 0.1)
+
+[sub_resource type="QuadMesh" id="q_fill"]
+size = Vector2(0.68, 0.068)
+
+[node name="HealthBar3D" type="Node3D"]
+script = ExtResource("1_hb")
+
+[node name="Back" type="MeshInstance3D" parent="."]
+mesh = SubResource("q_back")
+surface_material_override/0 = ExtResource("2_back")
+
+[node name="FillPivot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.34, 0, 0.003)
+
+[node name="Fill" type="MeshInstance3D" parent="FillPivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.34, 0, 0)
+mesh = SubResource("q_fill")
+surface_material_override/0 = ExtResource("3_fill")

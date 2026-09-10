@@ -1,0 +1,105 @@
+extends Node
+
+## Ручное управление гладиатором. На обучении нода отключается целиком
+## (Arena.gd -> human_control), поэтому агент её никогда не видит.
+##
+## ГЛАВНОЕ ОГРАНИЧЕНИЕ, из которого растёт всё остальное: механика знает
+## только «вперёд/назад» (intent_move) и «поворот» (intent_turn). Стрейфа нет,
+## и добавить его нельзя - обученная политика работает ровно с этими пятью
+## действиями, шестое сделало бы все модели в models/ непригодными.
+##
+## Поэтому нормальное WASD делается ПЕРЕСЧЁТОМ ввода: по нажатым клавишам и
+## углу камеры считается желаемое направление, а тело доворачивается к нему
+## через тот же intent_turn, которым пользуется агент. Игрок при этом
+## подчиняется turn_speed_deg наравне с ИИ - мгновенных разворотов нет.
+
+@export var mouse_sensitivity: float = 0.16
+@export var turn_gain: float = 2.6      ## насколько резко доворачиваемся к цели
+
+@onready var _g: Gladiator = get_parent() as Gladiator
+
+var _mouse_turn: float = 0.0
+
+
+func _ready() -> void:
+	# Намерения должны быть выставлены ДО того, как Gladiator._physics_process
+	# их прочитает. Отрицательный приоритет = выполняемся раньше родителя.
+	process_physics_priority = -10
+
+	if _g == null:
+		push_error("PlayerInput должен быть дочерней нодой Gladiator")
+		set_physics_process(false)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		# Накапливаем за кадр: событий мыши между физическими шагами может быть
+		# несколько, и брать только последнее значило бы терять часть движения.
+		_mouse_turn += event.relative.x * mouse_sensitivity
+
+
+func _physics_process(_delta: float) -> void:
+	if _g == null or not _g.is_alive():
+		_mouse_turn = 0.0
+		return
+
+	var cam_yaw := _camera_yaw()
+	var ix := Input.get_axis("g_left", "g_right")     # -1 влево, +1 вправо
+	var iz := Input.get_axis("g_forward", "g_back")   # -1 вперёд, +1 назад
+
+	_g.intent_block = Input.is_action_pressed("g_block")
+	_g.intent_revive = Input.is_action_pressed("g_revive")
+
+	if _g.intent_block:
+		_aim_and_step(cam_yaw, -iz)
+	else:
+		_move_freely(cam_yaw, ix, iz)
+
+	_mouse_turn = 0.0
+
+	if Input.is_action_just_pressed("g_sword"):
+		_g.intent_sword = true
+	if Input.is_action_just_pressed("g_kick"):
+		_g.intent_kick = true
+
+
+## Обычный режим: бежим туда, куда нажали относительно камеры, и тело
+## разворачивается следом. Это привычное управление от третьего лица.
+func _move_freely(cam_yaw: float, ix: float, iz: float) -> void:
+	var wish := Vector3(ix, 0.0, iz)
+	if wish.length_squared() < 0.01:
+		_g.intent_move = 0.0
+		# Без движения мышь всё равно должна поворачивать - иначе не осмотреться
+		_g.intent_turn = clampf(_mouse_turn, -1.0, 1.0)
+		return
+
+	wish = wish.normalized().rotated(Vector3.UP, cam_yaw)
+	_g.intent_move = 1.0
+	_g.intent_turn = _turn_towards(atan2(-wish.x, -wish.z))
+
+
+## Со щитом разворачиваться за движением нельзя: блок держит только передний
+## сектор, и отступать надо ЛИЦОМ к врагу. Здесь тело смотрит туда же, куда
+## камера, а W/S дают ход вперёд и назад.
+func _aim_and_step(cam_yaw: float, forward_amount: float) -> void:
+	_g.intent_move = clampf(forward_amount, -1.0, 1.0)
+	_g.intent_turn = _turn_towards(cam_yaw)
+
+
+## Пропорциональный доворот к желаемому углу плюс прямой вклад мыши.
+func _turn_towards(desired_yaw: float) -> float:
+	var diff := wrapf(desired_yaw - _g.global_rotation.y, -PI, PI)
+	# Знак минус: в Gladiator поворот делается через rotate_y(-intent_turn * ...)
+	return clampf(-diff * turn_gain + _mouse_turn, -1.0, 1.0)
+
+
+func _camera_yaw() -> float:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return _g.global_rotation.y
+	# Камера висит на SpringArm3D, у которого свой угол; у самой Camera3D
+	# вращение занято тряской, поэтому спрашиваем именно руку.
+	var rig := cam.get_parent()
+	if rig != null and rig.has_method("get_yaw"):
+		return rig.get_yaw()
+	return cam.global_rotation.y

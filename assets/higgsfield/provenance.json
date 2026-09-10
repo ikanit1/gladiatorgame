@@ -1,0 +1,33 @@
+{
+  "created": "2026-09-10",
+  "images": [
+    {
+      "id": "d6cffa6a-aa41-4a43-9cb6-ca933bd8771e",
+      "model": "nano_banana_2",
+      "prompt": "Production game texture, seamless tileable BASE COLOR albedo only, full frame orthographic scan of worn charcoal grey limestone ashlar masonry for a dark Roman gladiator fortress. Four staggered courses of large rectangular stone blocks, narrow recessed mortar joints, chipped bevels and restrained small cracks, subtle warm grey mineral variation. Neutral diffuse even lighting, no directional shadows, no ambient occlusion, no perspective, no vignette, no text, no border, no objects. Medium value grey, readable large forms, realistic hand-crafted stone. All four edges must tile seamlessly. Entire image is the material surface.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3ADbmfb61PTX8JOOEMIwNgDV0lu/hf_20260909_233538_d6cffa6a-aa41-4a43-9cb6-ca933bd8771e.png"
+    },
+    {
+      "id": "1abdefc8-776e-4801-85bb-2dd4508dee9b",
+      "model": "nano_banana_2",
+      "prompt": "Production game texture, seamless tileable BASE COLOR albedo only, full frame orthographic top down scan of ancient Roman dungeon floor, large worn limestone flagstones in irregular rectangular arrangement. Warm desaturated beige grey stone, fine pitting, chipped rounded edges, narrow dark joints, sparse sand dust in crevices. Calm readable surface for combat gameplay, restrained detail, no debris objects, no moss, no symbols, no text. Flat neutral illumination, no directional shadow, no perspective, no vignette, no border. All four edges tile seamlessly. Entire image material surface.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3ADbmfb61PTX8JOOEMIwNgDV0lu/hf_20260909_233538_1abdefc8-776e-4801-85bb-2dd4508dee9b.png"
+    },
+    {
+      "id": "8f1877e2-3732-4e80-a632-568b312549bb",
+      "model": "nano_banana_2",
+      "prompt": "Single isolated game prop for image-to-3D reconstruction: imposing ancient Roman dungeon brazier pedestal, full object visible from base to rim, three quarter view, centered on plain light grey background. Squat square tiered dark limestone base, tapered carved stone shaft with simple recessed panels, heavy octagonal weathered bronze fire bowl supported at top, bowl contains a few black coals. NO flames NO smoke NO glow NO floating pieces. About 1.7 meters tall and 0.8 meters wide, clean strong silhouette, restrained high quality stylized realism, bronze trim, subtle chipped edges. Even studio lighting, no text, no additional objects, no ground plane.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3ADbmfb61PTX8JOOEMIwNgDV0lu/hf_20260909_233539_8f1877e2-3732-4e80-a632-568b312549bb.png"
+    },
+    {
+      "id": "489a83dd-bcad-405d-b869-58cce6e10028",
+      "model": "nano_banana_2",
+      "prompt": "Single isolated game environment prop for image-to-3D reconstruction: ancient Roman fortress architectural pillar, entire object visible, straight upright, three quarter view, centered on plain light grey background. Square tiered plinth, sturdy short fluted charcoal limestone column with six broad vertical channels, simple square capital with weathered bronze trim band. 3 meters tall, 0.75 meter wide. Dark warm grey stone, chipped bevels, aged bronze accents, high quality restrained stylized realistic fantasy dungeon art. Compact solid silhouette without thin fragile features. No text, no vines, no background scene, no additional objects, no ground plane, flat studio light.",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3ADbmfb61PTX8JOOEMIwNgDV0lu/hf_20260909_233538_489a83dd-bcad-405d-b869-58cce6e10028.png"
+    }
+  ],
+  "models": {
+    "method": "Locally authored Godot geometry, based on Higgsfield image references; no 3D generation job",
+    "generator": "res://tools/build_fortress_assets.gd"
+  }
+}

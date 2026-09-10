@@ -1,0 +1,13 @@
+# Нормализация текста: в репозитории всегда LF, в рабочей копии - как принято
+# в системе. Жёсткий eol=lf здесь конфликтовал бы с core.autocrlf на Windows
+# и давал бы вечный «файл изменён целиком» после каждого checkout.
+* text=auto
+
+# Бинарники: не сливать построчно и не показывать diff
+*.glb     binary
+*.png     binary
+*.jpg     binary
+*.wav     binary
+*.zip     binary
+*.pkl     binary
+*.policy  binary

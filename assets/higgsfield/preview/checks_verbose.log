@@ -1,0 +1,248 @@
+WorkerThreadPool: 16 threads, 4 max low-priority.
+Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org
+TextServer: Added interface "Dummy"
+TextServer: Added interface "ICU / HarfBuzz / Graphite (Built-in)"
+Unrecognized output string "misc2" in mapping:
+030000008a2e0000dd10000000000000,Hand Held Legend GC Ultimate,a:b0,b:b2,back:b17,dpdown:b5,dpleft:b6,dpright:b7,dpup:b4,guide:b18,leftshoulder:b10,leftstick:b8,lefttrigger:a3,leftx:a0,lefty:a1,misc1:b19,misc2:b24,paddle1:b13,paddle2:b12,rightshoulder:b11,rightstick:b9,righttrigger:a4,rightx:a2,righty:a5,start:b16,x:b1,y:b3,platform:Windows,
+Unrecognized output string "misc2" in mapping:
+030000000d0f00000202000000000000,Horipad O Nintendo Switch 2 Controller,a:b1,b:b0,back:b8,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b4,leftstick:b10,lefttrigger:b6,leftx:a0,lefty:a1,misc1:b13,misc2:b14,rightshoulder:b5,rightstick:b11,righttrigger:b7,rightx:a2,righty:a3,start:b9,x:b3,y:b2,platform:Windows,
+Unrecognized output string "misc2" in mapping:
+030000000d0f00009601000000000000,Horipad Steam,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:b8,leftx:a0,lefty:a1,misc2:b2,paddle1:b5,paddle2:b15,paddle3:b18,paddle4:b19,rightshoulder:b7,rightstick:b14,righttrigger:b9,rightx:a3,righty:a4,start:b11,x:b3,y:b4,platform:Windows,
+Unrecognized output string "misc2" in mapping:
+030000007e0500006920000000000000,Nintendo Switch 2 Pro Controller,a:b0,b:b1,back:b14,dpdown:b8,dpleft:b10,dpright:b9,dpup:b11,guide:b16,leftshoulder:b12,leftstick:b15,lefttrigger:b13,leftx:a0,lefty:a1~,misc1:b17,misc2:b20,paddle1:b18,paddle2:b19,rightshoulder:b4,rightstick:b7,righttrigger:b5,rightx:a2,righty:a3~,start:b6,x:b2,y:b3,platform:Windows,
+Using "default" pen tablet driver...
+
+TextServer: Primary interface set to: "ICU / HarfBuzz / Graphite (Built-in)".
+CORE API HASH: 2475187701
+EDITOR API HASH: 3867286884
+Loading resource: res://tools/check_fortress_assets.gd
+SceneTreeFTI: traversal method DEFAULT
+Loading resource: res://scripts/ui/GameConfig.gd
+Loaded system CA certificates
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://assets/higgsfield/textures/limestone_floor_albedo.png
+Loading resource: res://.godot/imported/limestone_floor_albedo.png-05975dfa17334a419967626beb69898d.s3tc.ctex
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://scripts/FortressDecor.gd
+Loading resource: res://assets/higgsfield/models/fortress_pillar.tscn
+Loading resource: res://assets/higgsfield/models/bronze_brazier.tscn
+Loading resource: res://assets/higgsfield/models/iron_portcullis.tscn
+Loading resource: res://scenes/Torch.tscn
+Loading resource: res://scripts/Torch.gd
+Loading resource: res://materials/m_flame.tres
+Loading resource: res://materials/m_dark_metal.tres
+Loading resource: res://materials/m_stone_dark.tres
+Loading resource: res://materials/m_bronze.tres
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+Loading resource: res://assets/higgsfield/models/fortress_pillar.glb
+Loading resource: res://.godot/imported/fortress_pillar.glb-54404ef59c077632b6f2a48c990972f2.scn
+Loading resource: res://assets/higgsfield/models/fortress_pillar_limestone_floor_albedo.png
+Loading resource: res://.godot/imported/fortress_pillar_limestone_floor_albedo.png-b36feda29e92f5afafa2ad3b3ad532bb.s3tc.ctex
+Loading resource: res://assets/higgsfield/models/bronze_brazier.glb
+Loading resource: res://.godot/imported/bronze_brazier.glb-4534fced10bf6cec8feb261a6636e852.scn
+Loading resource: res://assets/higgsfield/models/bronze_brazier_limestone_floor_albedo.png
+Loading resource: res://.godot/imported/bronze_brazier_limestone_floor_albedo.png-50592a2b0a9a46625537cbf47775ea10.s3tc.ctex
+Loading resource: res://assets/higgsfield/models/iron_portcullis.glb
+Loading resource: res://.godot/imported/iron_portcullis.glb-2cfef9b9573cacc438e5d4f96026a303.scn
+Loading resource: res://scenes/Game.tscn
+Loading resource: res://scenes/Arena.tscn
+Loading resource: res://scripts/ArenaSfx.gd
+Loading resource: res://audio/wave_start.wav
+Loading resource: res://.godot/imported/wave_start.wav-15853ea5d551d2f86dd6b0a9043ba9a0.sample
+Loading resource: res://audio/potion_pickup.wav
+Loading resource: res://.godot/imported/potion_pickup.wav-0fb099fccb42e8c4efba54f8d4a8337c.sample
+Loading resource: res://audio/potion_spawn.wav
+Loading resource: res://.godot/imported/potion_spawn.wav-59b9de3993a8db9e764a3c1c9b06853c.sample
+Loading resource: res://scripts/fx/CombatFX.gd
+Loading resource: res://scenes/Zombie.tscn
+Loading resource: res://scenes/ZombieVisuals.tscn
+Loading resource: res://scripts/ZombieVisuals.gd
+Loading resource: res://audio/zombie_growl.wav
+Loading resource: res://.godot/imported/zombie_growl.wav-c69a045195b326c6f2f7755cbdc6f7c5.sample
+Loading resource: res://audio/zombie_die.wav
+Loading resource: res://.godot/imported/zombie_die.wav-4cbd41767580f37fd3032060926c7ed8.sample
+Loading resource: res://materials/m_zombie_skin.tres
+Loading resource: res://materials/m_zombie_cloth.tres
+Loading resource: res://scenes/HealthBar3D.tscn
+Loading resource: res://scripts/HealthBar3D.gd
+Loading resource: res://materials/m_hp_back.tres
+Loading resource: res://materials/m_hp_fill.tres
+Loading resource: res://scenes/Potion.tscn
+Loading resource: res://materials/m_potion_glass.tres
+Loading resource: res://materials/m_potion_liquid.tres
+Loading resource: res://materials/m_potion_cork.tres
+Loading resource: res://scenes/Gladiator.tscn
+Loading resource: res://scripts/PlayerInput.gd
+Loading resource: res://scenes/GladiatorVisuals.tscn
+Loading resource: res://scripts/GladiatorVisuals.gd
+Loading resource: res://audio/sword_swing.wav
+Loading resource: res://.godot/imported/sword_swing.wav-7799829e09acf5ba9b49c6558ddfcada.sample
+Loading resource: res://audio/sword_hit.wav
+Loading resource: res://.godot/imported/sword_hit.wav-3361941a4aa2c0ae114c4e316441da0f.sample
+Loading resource: res://audio/kick.wav
+Loading resource: res://.godot/imported/kick.wav-c45ed3666cfea1e8dd64225241020843.sample
+Loading resource: res://audio/shield_block.wav
+Loading resource: res://.godot/imported/shield_block.wav-e6de31c6e326aee3ad6f2d9fa7c78ede.sample
+Loading resource: res://audio/guard_break.wav
+Loading resource: res://.godot/imported/guard_break.wav-a4d050a240d72946227b7d92e5f1682a.sample
+Loading resource: res://audio/player_hurt.wav
+Loading resource: res://.godot/imported/player_hurt.wav-ff155c0946714c86ae265e3669534cda.sample
+Loading resource: res://audio/player_die.wav
+Loading resource: res://.godot/imported/player_die.wav-5d9052e32ecd78c74d2622e14831fba9.sample
+Loading resource: res://audio/footstep.wav
+Loading resource: res://.godot/imported/footstep.wav-713471070f8032247c1fe48c94683a94.sample
+Loading resource: res://assets/3d/helmet.glb
+Loading resource: res://.godot/imported/helmet.glb-1156970e47130e41a9f8bf32378837d8.scn
+Loading resource: res://assets/3d/helmet_Color_1ce73e2d-44f3-4b07-b92a-cba2ce7c2c00.jpg
+Loading resource: res://.godot/imported/helmet_Color_1ce73e2d-44f3-4b07-b92a-cba2ce7c2c00.jpg-514c72d1a93d552f00fd51f536bd538f.s3tc.ctex
+Loading resource: res://assets/3d/helmet_ORM_1ce73e2d-44f3-4b07-b92a-cba2ce7c2c00.jpg
+Loading resource: res://.godot/imported/helmet_ORM_1ce73e2d-44f3-4b07-b92a-cba2ce7c2c00.jpg-b0a32b88fccdef0b35fa0675cced43f3.s3tc.ctex
+Loading resource: res://assets/3d/helmet_NormalGL_1ce73e2d-44f3-4b07-b92a-cba2ce7c2c00.jpg
+Loading resource: res://.godot/imported/helmet_NormalGL_1ce73e2d-44f3-4b07-b92a-cba2ce7c2c00.jpg-d6355194747645f88d5835e427f4ec1c.s3tc.ctex
+Loading resource: res://assets/3d/shield.glb
+Loading resource: res://.godot/imported/shield.glb-fc0c863197e2dd9d5234fbde3cc67afa.scn
+Loading resource: res://assets/3d/shield_Color_6a8404e2-0967-4e44-946d-678cf17d1b21.jpg
+Loading resource: res://.godot/imported/shield_Color_6a8404e2-0967-4e44-946d-678cf17d1b21.jpg-1ebe2f067d6bb6563b91a93f66e8ffd7.s3tc.ctex
+Loading resource: res://assets/3d/shield_ORM_6a8404e2-0967-4e44-946d-678cf17d1b21.jpg
+Loading resource: res://.godot/imported/shield_ORM_6a8404e2-0967-4e44-946d-678cf17d1b21.jpg-5afa8e9425b58a631b12d19f7c731f8b.s3tc.ctex
+Loading resource: res://assets/3d/shield_NormalGL_6a8404e2-0967-4e44-946d-678cf17d1b21.jpg
+Loading resource: res://.godot/imported/shield_NormalGL_6a8404e2-0967-4e44-946d-678cf17d1b21.jpg-8546e01ed705740209914252a4d6096c.s3tc.ctex
+Loading resource: res://materials/m_steel.tres
+Loading resource: res://materials/m_leather.tres
+Loading resource: res://materials/m_cloth_red.tres
+Loading resource: res://materials/m_skin.tres
+Loading resource: res://materials/m_wood.tres
+Loading resource: res://materials/m_sand.tres
+Loading resource: res://materials/m_stone.tres
+Loading resource: res://scripts/ui/GameScreen.gd
+Loading resource: res://scripts/ThirdPersonCamera.gd
+Loading resource: res://materials/m_fortress_floor.tres
+Loading resource: res://materials/m_fortress_wall.tres
+Loading resource: res://assets/higgsfield/textures/fortress_wall_albedo.png
+Loading resource: res://.godot/imported/fortress_wall_albedo.png-1ad1f69420749ac08382079722893a20.s3tc.ctex
+PASS: 28 room layouts, identical collisions, both gate states, headless decor suppression, 3 GLB imports, game smoke.
+XR: Clearing primary interface
+XR: Removed interface "Native mobile"
+XR: Removed interface "OpenXR"
+Leaked instance: AudioStreamWAV:9223372456536835777 - Reference count: 1
+Leaked instance: AudioStreamWAV:9223372458852091750 - Reference count: 1
+Leaked instance: AudioStreamPlaybackWAV:9223372521112343060 - Reference count: 1
+Leaked instance: AudioStreamPlaybackWAV:9223372529131852621 - Reference count: 1
+Hint: Leaked instances typically happen when nodes are removed from the scene tree (with `remove_child()`) but not freed (with `free()` or `queue_free()`).
+Resource still in use: res://audio/wave_start.wav (AudioStreamWAV)
+Resource still in use: res://audio/zombie_growl.wav (AudioStreamWAV)
+Orphan StringName: Master (static: 0, total: 4)
+StringName: 1 unclaimed string names at exit.
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2663)
+ERROR: 2 resources still in use at exit.
+   at: clear (core/io/resource.cpp:805)

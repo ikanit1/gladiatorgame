@@ -1,0 +1,182 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/Arena.tscn" id="1_arena"]
+[ext_resource type="Script" path="res://scripts/DebugHUD.gd" id="2_hud"]
+[ext_resource type="Script" path="res://scripts/FollowCamera.gd" id="3_cam"]
+[ext_resource type="Script" path="res://scripts/rl/PlayWorld.gd" id="4_play"]
+[ext_resource type="Script" path="res://addons/godot_rl_agents/sync.gd" id="5_sync"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat_1"]
+sky_top_color = Color(0.13, 0.28, 0.55, 1)
+sky_horizon_color = Color(0.68, 0.74, 0.82, 1)
+sky_curve = 0.18
+ground_bottom_color = Color(0.1, 0.09, 0.08, 1)
+ground_horizon_color = Color(0.26, 0.24, 0.22, 1)
+sun_angle_max = 22.0
+sun_curve = 0.12
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("SkyMat_1")
+
+[sub_resource type="Environment" id="Env_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+ambient_light_source = 3
+ambient_light_energy = 1.25
+tonemap_mode = 3
+tonemap_white = 6.0
+ssao_enabled = true
+ssao_radius = 1.4
+ssao_intensity = 1.5
+ssao_power = 1.2
+glow_enabled = true
+glow_intensity = 0.55
+glow_bloom = 0.12
+glow_hdr_threshold = 1.05
+fog_enabled = true
+fog_light_color = Color(0.6, 0.62, 0.66, 1)
+fog_density = 0.0015
+adjustment_enabled = true
+adjustment_contrast = 1.06
+adjustment_saturation = 1.12
+
+[sub_resource type="StyleBoxFlat" id="Style_panel"]
+bg_color = Color(0.04, 0.035, 0.03, 0.62)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="Play" type="Node3D"]
+script = ExtResource("4_play")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_1")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.4531, 0.2113, 0, 0.4226, 0.9063, -0.5, -0.7849, 0.366, 0, 16, 0)
+light_color = Color(1, 0.94, 0.86, 1)
+light_energy = 1.5
+shadow_enabled = true
+shadow_bias = 0.03
+shadow_normal_bias = 1.0
+directional_shadow_mode = 2
+directional_shadow_max_distance = 130.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7071068, 0.7071068, 0, -0.7071068, 0.7071068, 0, 8.5, 8.5)
+fov = 55.0
+offset = Vector3(0, 7.5, 5.8)
+script = ExtResource("3_cam")
+target_path = NodePath("../Arena/Gladiator")
+
+[node name="Arena" parent="." instance=ExtResource("1_arena")]
+human_control = false
+auto_reset = false
+
+[node name="DebugHUD" type="CanvasLayer" parent="."]
+script = ExtResource("2_hud")
+arena_path = NodePath("../Arena")
+
+[node name="Panel" type="Panel" parent="DebugHUD"]
+offset_left = 14.0
+offset_top = 14.0
+offset_right = 314.0
+offset_bottom = 196.0
+theme_override_styles/panel = SubResource("Style_panel")
+
+[node name="HpBack" type="ColorRect" parent="DebugHUD"]
+offset_left = 28.0
+offset_top = 30.0
+offset_right = 300.0
+offset_bottom = 52.0
+color = Color(0.12, 0.06, 0.06, 0.9)
+
+[node name="HpFill" type="ColorRect" parent="DebugHUD"]
+offset_left = 30.0
+offset_top = 32.0
+offset_right = 298.0
+offset_bottom = 50.0
+color = Color(0.78, 0.2, 0.16, 1)
+
+[node name="HpLabel" type="Label" parent="DebugHUD"]
+offset_left = 36.0
+offset_top = 31.0
+offset_right = 300.0
+offset_bottom = 51.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 14
+text = "HP"
+
+[node name="StBack" type="ColorRect" parent="DebugHUD"]
+offset_left = 28.0
+offset_top = 58.0
+offset_right = 300.0
+offset_bottom = 74.0
+color = Color(0.06, 0.09, 0.13, 0.9)
+
+[node name="StFill" type="ColorRect" parent="DebugHUD"]
+offset_left = 30.0
+offset_top = 60.0
+offset_right = 298.0
+offset_bottom = 72.0
+color = Color(0.35, 0.62, 0.88, 1)
+
+[node name="SwordBack" type="ColorRect" parent="DebugHUD"]
+offset_left = 28.0
+offset_top = 80.0
+offset_right = 160.0
+offset_bottom = 92.0
+color = Color(0.1, 0.09, 0.07, 0.9)
+
+[node name="SwordFill" type="ColorRect" parent="DebugHUD"]
+offset_left = 30.0
+offset_top = 82.0
+offset_right = 158.0
+offset_bottom = 90.0
+color = Color(0.85, 0.75, 0.45, 1)
+
+[node name="KickBack" type="ColorRect" parent="DebugHUD"]
+offset_left = 168.0
+offset_top = 80.0
+offset_right = 300.0
+offset_bottom = 92.0
+color = Color(0.1, 0.09, 0.07, 0.9)
+
+[node name="KickFill" type="ColorRect" parent="DebugHUD"]
+offset_left = 170.0
+offset_top = 82.0
+offset_right = 298.0
+offset_bottom = 90.0
+color = Color(0.7, 0.55, 0.85, 1)
+
+[node name="Info" type="Label" parent="DebugHUD"]
+offset_left = 28.0
+offset_top = 98.0
+offset_right = 310.0
+offset_bottom = 190.0
+theme_override_colors/font_color = Color(0.93, 0.91, 0.87, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 14
+
+[node name="Hints" type="Label" parent="DebugHUD"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 18.0
+offset_top = -74.0
+offset_right = 460.0
+offset_bottom = -12.0
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.88, 0.86, 0.82, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 13
+
+[node name="Sync" type="Node" parent="."]
+script = ExtResource("5_sync")
+action_repeat = 8
+speed_up = 1.0

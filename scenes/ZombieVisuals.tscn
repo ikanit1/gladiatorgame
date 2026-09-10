@@ -1,0 +1,133 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://scripts/ZombieVisuals.gd" id="1_zvis"]
+[ext_resource type="Script" path="res://scripts/SfxPlayer.gd" id="6_sfx"]
+[ext_resource type="Material" path="res://materials/m_zombie_skin.tres" id="2_zskin"]
+[ext_resource type="Material" path="res://materials/m_zombie_cloth.tres" id="3_zcloth"]
+[ext_resource type="Material" path="res://materials/m_dark_metal.tres" id="4_dark"]
+[ext_resource type="PackedScene" path="res://scenes/HealthBar3D.tscn" id="5_hb"]
+
+[sub_resource type="CapsuleMesh" id="z_leg"]
+material = ExtResource("2_zskin")
+radius = 0.1
+height = 0.7
+radial_segments = 12
+rings = 3
+
+[sub_resource type="BoxMesh" id="z_rags"]
+material = ExtResource("3_zcloth")
+size = Vector3(0.52, 0.4, 0.36)
+
+[sub_resource type="CapsuleMesh" id="z_torso"]
+material = ExtResource("3_zcloth")
+radius = 0.25
+height = 0.52
+radial_segments = 12
+rings = 3
+
+[sub_resource type="SphereMesh" id="z_skull"]
+material = ExtResource("2_zskin")
+radius = 0.15
+height = 0.31
+radial_segments = 12
+rings = 8
+
+[sub_resource type="BoxMesh" id="z_jaw"]
+material = ExtResource("4_dark")
+size = Vector3(0.2, 0.07, 0.2)
+
+[sub_resource type="CapsuleMesh" id="z_upperarm"]
+material = ExtResource("2_zskin")
+radius = 0.08
+height = 0.34
+radial_segments = 10
+rings = 3
+
+[sub_resource type="CapsuleMesh" id="z_forearm"]
+material = ExtResource("2_zskin")
+radius = 0.07
+height = 0.32
+radial_segments = 10
+rings = 3
+
+[sub_resource type="BoxMesh" id="z_hand"]
+material = ExtResource("2_zskin")
+size = Vector3(0.16, 0.12, 0.19)
+
+[node name="ZombieVisuals" type="Node3D"]
+script = ExtResource("1_zvis")
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="LegL" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11, 0.75, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/LegL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.35, 0)
+mesh = SubResource("z_leg")
+
+[node name="LegR" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11, 0.75, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/LegR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.35, 0)
+mesh = SubResource("z_leg")
+
+[node name="Rags" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+mesh = SubResource("z_rags")
+
+[node name="Torso" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.02, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+mesh = SubResource("z_torso")
+
+[node name="Head" type="Node3D" parent="Body/Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.42, 0)
+
+[node name="Skull" type="MeshInstance3D" parent="Body/Torso/Head"]
+mesh = SubResource("z_skull")
+
+[node name="Jaw" type="MeshInstance3D" parent="Body/Torso/Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.12, -0.02)
+mesh = SubResource("z_jaw")
+
+[node name="ArmR" type="Node3D" parent="Body/Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.29, 0.2, 0)
+
+[node name="UpperArm" type="MeshInstance3D" parent="Body/Torso/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.16, 0)
+mesh = SubResource("z_upperarm")
+
+[node name="Forearm" type="MeshInstance3D" parent="Body/Torso/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.46, 0)
+mesh = SubResource("z_forearm")
+
+[node name="Hand" type="MeshInstance3D" parent="Body/Torso/ArmR"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.65, -0.02)
+mesh = SubResource("z_hand")
+
+[node name="ArmL" type="Node3D" parent="Body/Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.29, 0.2, 0)
+
+[node name="UpperArm" type="MeshInstance3D" parent="Body/Torso/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.16, 0)
+mesh = SubResource("z_upperarm")
+
+[node name="Forearm" type="MeshInstance3D" parent="Body/Torso/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.46, 0)
+mesh = SubResource("z_forearm")
+
+[node name="Hand" type="MeshInstance3D" parent="Body/Torso/ArmL"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.65, -0.02)
+mesh = SubResource("z_hand")
+
+[node name="HealthBar3D" parent="." instance=ExtResource("5_hb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.95, 0)
+
+[node name="Sfx" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+script = ExtResource("6_sfx")
+voices = 2
