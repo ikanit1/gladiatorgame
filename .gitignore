@@ -26,3 +26,6 @@ _rltest/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# --- Визуальный компаньон брейнсторма ---
+.superpowers/
