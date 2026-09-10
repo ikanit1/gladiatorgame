@@ -10,6 +10,11 @@ extends Node3D
 const CELL_SIZE := RoomGenerator.CELL_SIZE
 const WALL_THICKNESS := 0.6
 const WALL_HEIGHT := 3.0
+const CEILING_THICKNESS := 0.3
+## Шаг светильников под перекрытием, в клетках (клетка - 2 метра).
+const LAMP_STEP := 4
+const LAMP_ENERGY := 3.2
+const LAMP_RANGE := 12.0
 const DOOR_WIDTH := CELL_SIZE
 const DOOR_NONE := -1
 
@@ -113,6 +118,81 @@ func _build() -> void:
 	if entrance_side != DOOR_NONE:
 		_add_door_frame(wall_visual, entrance_side, wall_material, true)
 	_create_exit_blocker(wall_body)
+
+	# Потолок строится только при visuals_enabled: в обучении камеры нет,
+	# а сотня лишних коллизионных форм на каждой из шестнадцати арен -
+	# чистая трата. На физику боя потолок не влияет, никто не прыгает.
+	if visuals_enabled:
+		_add_ceiling(cells, wall_material)
+
+
+## Перекрытие над комнатой: плита на каждую клетку пола.
+##
+## Коллизия обязательна, а не только меш. За неё цепляется SpringArm камеры:
+## без коллизии камера при взгляде сверху вниз ушла бы ЗА потолок и показала
+## бы ровно то, что потолок и должен закрывать - пустоту за комнатой.
+##
+## Плиты идут по клеткам, а не одним прямоугольником, потому что комната
+## бывает Г-образной и крестовой: сплошная плита накрыла бы и пустые клетки.
+func _add_ceiling(cells: Array[Vector2i], material: StandardMaterial3D) -> void:
+	var body := StaticBody3D.new()
+	body.name = "CeilingCollision"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	add_child(body)
+
+	var visual := Node3D.new()
+	visual.name = "CeilingVisual"
+	add_child(visual)
+
+	var mat := material.duplicate() as StandardMaterial3D
+	# Снизу плита всегда в тени: солнце светит сверху и до неё не достаёт.
+	# Без затемнения потолок оказывается светлее стен, и комната выглядит
+	# так, будто крыша сама себя освещает.
+	mat.albedo_color = mat.albedo_color.darkened(0.45)
+
+	var mesh := BoxMesh.new()
+	var size := Vector3(CELL_SIZE, CEILING_THICKNESS, CELL_SIZE)
+	mesh.size = size
+	mesh.material = mat
+
+	var y := WALL_HEIGHT + CEILING_THICKNESS * 0.5
+	for cell in cells:
+		var local := _cell_position(cell) + Vector3(0.0, y, 0.0)
+
+		var slab := MeshInstance3D.new()
+		slab.mesh = mesh
+		slab.position = local
+		visual.add_child(slab)
+
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = size
+		shape.shape = box
+		shape.position = local
+		body.add_child(shape)
+
+		# Светильник через каждые LAMP_STEP клеток. Перекрытие отрезает
+		# направленный свет, а окружающее берётся от почти ночного неба, и
+		# без собственных ламп закрытая комната становится буквально чёрной:
+		# факелы стоят только у дверей и до середины зала не достают.
+		if posmod(cell.x, LAMP_STEP) == 0 and posmod(cell.y, LAMP_STEP) == 0:
+			_add_lamp(visual, local + Vector3(0.0, -CEILING_THICKNESS, 0.0))
+
+
+func _add_lamp(root: Node3D, pos: Vector3) -> void:
+	var light := OmniLight3D.new()
+	light.name = "CeilingLamp"
+	light.position = pos
+	light.light_color = Color(1.0, 0.74, 0.45)
+	light.light_energy = LAMP_ENERGY
+	light.omni_range = LAMP_RANGE
+	light.omni_attenuation = 1.4
+	# Тени выключены намеренно. Ламп в зале до десятка, комнаты не удаляются
+	# и копятся по ходу забега; десяток теневых источников на комнату сложился
+	# бы в неподъёмное число проходов теней уже к третьей комнате.
+	light.shadow_enabled = false
+	root.add_child(light)
 
 
 func _material(color: Color) -> StandardMaterial3D:

@@ -130,7 +130,6 @@ func _build_hud() -> void:
 
 	_build_fighter_panels()
 	_build_chips()
-	_build_crosshair()
 	_build_revive_bar()
 	_build_notices()
 
@@ -253,21 +252,6 @@ func _build_chips() -> void:
 		chip.add_child(value)
 		_chips[str(spec[1])] = value
 		row.add_child(chip)
-
-
-## Прицел. В бою от третьего лица без него непонятно, куда смотрит камера:
-## меч бьёт по направлению взгляда, а не по центру силуэта бойца.
-func _build_crosshair() -> void:
-	var c := Crosshair.new()
-	c.custom_minimum_size = Vector2(24, 24)
-	c.size = Vector2(24, 24)
-	# Размер выставляем ДО пресета и просим его сохранить. Обычный
-	# set_anchors_preset пересчитывает отступы под текущий размер и при
-	# ручной правке position обнулял высоту - прицел не рисовался вовсе.
-	c.set_anchors_and_offsets_preset(Control.PRESET_CENTER,
-		Control.PRESET_MODE_KEEP_SIZE)
-	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hud.add_child(c)
 
 
 func _build_revive_bar() -> void:
@@ -860,22 +844,3 @@ class HudBar extends Control:
 			_fill.color = color.lightened(0.35 * (0.5 + 0.5 * sin(_t * 9.0)))
 		else:
 			_fill.color = color
-
-
-## Прицел: четыре штриха с зазором и точка в центре.
-##
-## Рисуется кодом, а не текстурой: на любом разрешении он должен остаться
-## ровно в один пиксель толщиной, а масштабированная картинка замылилась бы.
-class Crosshair extends Control:
-	func _draw() -> void:
-		var c := size * 0.5
-		# Каждый штрих рисуется дважды: сначала тёмная подложка, поверх -
-		# светлое ядро. Один белый штрих терялся на светлом песке арены,
-		# а один тёмный - на тени под стеной.
-		for pass_i in 2:
-			var col := Color(0, 0, 0, 0.55) if pass_i == 0 else Color(1, 1, 1, 0.8)
-			var wide := 3.4 if pass_i == 0 else 1.4
-			for d in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
-				draw_line(c + d * 4.0, c + d * 9.0, col, wide, true)
-		draw_circle(c, 2.2, Color(0, 0, 0, 0.55))
-		draw_circle(c, 1.2, Color(1, 1, 1, 0.9))
