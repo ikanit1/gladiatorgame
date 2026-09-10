@@ -37,16 +37,21 @@ static func threat(floor_number: int, cleared_rooms: int, total_rooms: int) -> f
 	return base + progress
 
 
+## Порядок объявления этих четырёх функций намеренно совпадает с порядком
+## аргументов Zombie.set_threat_scaling(health, speed, damage, cooldown).
+## Если копировать функции «в порядке файла», легко переставить местами
+## скорость и урон — оба множителя валидные числа, и тест такую перестановку
+## не поймает.
 static func health_scale(t: float) -> float:
 	return 1.0 + HEALTH_PER_FLOOR * maxf(0.0, t)
 
 
-static func damage_scale(t: float) -> float:
-	return 1.0 + DAMAGE_PER_FLOOR * maxf(0.0, t)
-
-
 static func speed_scale(t: float) -> float:
 	return 1.0 + SPEED_PER_FLOOR * maxf(0.0, t)
+
+
+static func damage_scale(t: float) -> float:
+	return 1.0 + DAMAGE_PER_FLOOR * maxf(0.0, t)
 
 
 static func cooldown_scale(t: float) -> float:
