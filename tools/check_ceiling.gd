@@ -21,14 +21,24 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 
-	for spec in [[-0.28, "ceil_normal"], [-0.90, "ceil_down"], [0.35, "ceil_up"]]:
+	# Крайние углы берём из самого узла, а не числами: иначе проверка
+	# разъедется с настройками камеры при первой же их правке.
+	var up_limit: float = deg_to_rad(float(_rig.get("pitch_max_deg")))
+	var down_limit: float = deg_to_rad(float(_rig.get("pitch_min_deg")))
+	for spec in [[-0.28, "ceil_normal"], [down_limit, "ceil_down"], [up_limit, "ceil_up"]]:
 		_rig.set("_pitch", float(spec[0]))
 		await _settle(20)
 		var cam: Camera3D = _rig.get_node_or_null("Camera3D")
 		var dist := 0.0
 		if cam != null:
 			dist = cam.global_position.distance_to(_rig.global_position)
-		print("наклон %+.2f рад: длина штанги %.2f м" % [float(spec[0]), dist])
+		var cam_y := 0.0
+		if cam != null:
+			cam_y = cam.global_position.y
+		# Пол занимает -0.015..0.045: ниже этого камера оказывается внутри плиты
+		print("наклон %+6.1f град: штанга %.2f м, камера на высоте %.2f м%s" % [
+			rad_to_deg(float(spec[0])), dist, cam_y,
+			"   <-- ВНУТРИ ПОЛА" if cam_y < 0.10 else ""])
 		_shot(str(spec[1]) + ".png")
 
 	get_tree().quit()
