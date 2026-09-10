@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://d44ne4kantos"
+
+[deps]
+
+files=["res://tools/diagnostics/soak.sim.translation", "res://tools/diagnostics/soak.nodes.translation", "res://tools/diagnostics/soak.orphans.translation", "res://tools/diagnostics/soak.objects.translation", "res://tools/diagnostics/soak.resources.translation", "res://tools/diagnostics/soak.static.translation", "res://tools/diagnostics/soak.video.translation", "res://tools/diagnostics/soak.rooms.translation", "res://tools/diagnostics/soak.room.translation", "res://tools/diagnostics/soak.kills.translation", "res://tools/diagnostics/soak.attacks.translation"]
+
+source_file="res://tools/diagnostics/soak.csv"
+dest_files=["res://tools/diagnostics/soak.sim.translation", "res://tools/diagnostics/soak.nodes.translation", "res://tools/diagnostics/soak.orphans.translation", "res://tools/diagnostics/soak.objects.translation", "res://tools/diagnostics/soak.resources.translation", "res://tools/diagnostics/soak.static.translation", "res://tools/diagnostics/soak.video.translation", "res://tools/diagnostics/soak.rooms.translation", "res://tools/diagnostics/soak.room.translation", "res://tools/diagnostics/soak.kills.translation", "res://tools/diagnostics/soak.attacks.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

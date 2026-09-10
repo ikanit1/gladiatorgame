@@ -7,7 +7,7 @@ extends Node3D
 ## наблюдения берутся у того же GladiatorBrain, а решение считает PolicyRunner
 ## прямо в движке. Благодаря этому кооператив запускается из меню одной кнопкой.
 
-@export_file("*.policy") var policy_path: String = "res://models/gladiator_v4.policy"
+@export_file("*.policy") var policy_path: String = "res://models/gladiator_team.policy"
 @export var brain_path: NodePath = ^"../Brain"
 
 ## ОБЯЗАН совпадать с action_repeat, на котором политика обучалась (8).

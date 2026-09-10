@@ -44,7 +44,7 @@ signal room_cleared(room_index: int)
 ## и зелья, но не напарника. Иначе пришлось бы переобучать модель.
 @export var ally_enabled: bool = false
 @export var gladiator_scene: PackedScene
-@export_file("*.policy") var ally_policy: String = "res://models/gladiator_v4.policy"
+@export_file("*.policy") var ally_policy: String = "res://models/gladiator_team.policy"
 ## false - напарник ждёт внешнего управления (AIController при обучении),
 ## LocalAgent к нему не цепляется.
 @export var ally_local_policy: bool = true
@@ -209,6 +209,11 @@ func _disable_visuals() -> void:
 	if decor != null:
 		decor.process_mode = Node.PROCESS_MODE_DISABLED
 		decor.visible = false
+
+	var combat_fx := get_node_or_null("CombatFX")
+	if combat_fx != null:
+		combat_fx.process_mode = Node.PROCESS_MODE_DISABLED
+		combat_fx.visible = false
 
 	_hide_visuals_of(gladiator)
 	for z in _pool:

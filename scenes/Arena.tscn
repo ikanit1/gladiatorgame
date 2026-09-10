@@ -172,7 +172,7 @@ voices = 2
 max_distance = 200.0
 unit_size = 40.0
 
-[node name="CombatFX" type="Node3D" parent="Decor"]
+[node name="CombatFX" type="Node3D" parent="."]
 script = ExtResource("10_fx")
 
 [node name="Gladiator" parent="." instance=ExtResource("3_gladiator")]
