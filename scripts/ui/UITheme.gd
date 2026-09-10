@@ -31,6 +31,17 @@ const PANEL_FRAME := "res://assets/ui/panel_frame.png"
 const BAR_FRAME := "res://assets/ui/bar_frame.png"
 const MENU_BG := "res://assets/ui/menu_bg.png"
 
+# --- Шрифты ---
+## Forum: капитель по мотивам римских надписей. Взят вместо Cinzel и
+## Marcellus, которые подходят теме куда точнее, но кириллицы не содержат
+## вовсе - с ними весь русский интерфейс превратился бы в квадраты.
+const FONT_DISPLAY := "res://assets/ui/fonts/Forum-Regular.ttf"
+## PT Sans: рабочий текст, описания, цифры. Заголовочный шрифт для мелкого
+## текста не годится - у Forum крупные капители и узкие просветы, описание
+## награды в 13 пикселей им читалось бы через силу.
+const FONT_BODY := "res://assets/ui/fonts/PTSans-Regular.ttf"
+const FONT_BODY_BOLD := "res://assets/ui/fonts/PTSans-Bold.ttf"
+
 ## Толщина рамки в пикселях исходной текстуры. Углы с заклёпками должны
 ## целиком попасть в угловые куски nine-slice, иначе заклёпка растянется
 ## вдоль стороны и превратится в размазанное пятно.
@@ -45,6 +56,7 @@ const BAR_MARGIN_Y := 5.0
 const BAR_MIN_HEIGHT := 12
 
 static var _icons: Dictionary = {}
+static var _fonts: Dictionary = {}
 static var _theme: Theme = null
 
 
@@ -70,6 +82,31 @@ static func icon(name: String) -> Texture2D:
 
 static func _texture(path: String) -> Texture2D:
 	return load(path) if ResourceLoader.exists(path) else null
+
+
+## Шрифт по пути с кешем. null означает «нет файла»: тогда всё оформление
+## молча откатывается на встроенный шрифт Godot, а не падает на пустой сцене.
+static func _font(path: String) -> Font:
+	if _fonts.has(path):
+		return _fonts[path]
+	var f: Font = load(path) if ResourceLoader.exists(path) else null
+	if f == null:
+		push_warning("UITheme: нет шрифта %s" % path)
+	_fonts[path] = f
+	return f
+
+
+## Заголовочный шрифт: названия экранов, крупные надписи, имена наград.
+static func display_font() -> Font:
+	return _font(FONT_DISPLAY)
+
+
+static func body_font() -> Font:
+	return _font(FONT_BODY)
+
+
+static func bold_font() -> Font:
+	return _font(FONT_BODY_BOLD)
 
 
 # ------------------------------------------------------------------
@@ -120,6 +157,20 @@ static func bar_frame_style() -> StyleBox:
 	return sb
 
 
+## Плоская тёмная подложка со скруглением - для мелких элементов, куда
+## рамочный стиль не влезает: её поля nine-slice равны 16 пикселям, и в
+## строку высотой 28 они не помещаются вовсе.
+static func pill_style(alpha: float = 0.5) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.03, 0.03, 0.04, alpha)
+	sb.set_corner_radius_all(6)
+	sb.content_margin_left = 14.0
+	sb.content_margin_right = 14.0
+	sb.content_margin_top = 5.0
+	sb.content_margin_bottom = 5.0
+	return sb
+
+
 static func _flat_fallback(alpha: float) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(PANEL.r, PANEL.g, PANEL.b, alpha)
@@ -164,6 +215,9 @@ static func theme() -> Theme:
 
 	var t := Theme.new()
 	t.default_font_size = 15
+	var body := body_font()
+	if body != null:
+		t.default_font = body
 
 	t.set_stylebox("panel", "PanelContainer", panel_style())
 	t.set_stylebox("panel", "Panel", panel_style())
@@ -175,6 +229,10 @@ static func theme() -> Theme:
 	t.set_color("font_color", "Button", FG)
 	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_font_size("font_size", "Button", 16)
+	# Кнопки жирным: подпись на залитой бронзой плашке иначе теряет контраст
+	var bold := bold_font()
+	if bold != null:
+		t.set_font("font", "Button", bold)
 
 	t.set_color("font_color", "Label", FG)
 
@@ -209,6 +267,21 @@ static func label(text: String, size: int, color: Color,
 		l.add_theme_constant_override("outline_size", outline)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+
+## Заголовочная подпись: то же, что label, но набранная Forum.
+static func title(text: String, size: int, color: Color,
+		outline: int = 0) -> Label:
+	var l := label(text, size, color, outline)
+	use_display(l)
+	return l
+
+
+## Перевести готовую подпись на заголовочный шрифт.
+static func use_display(l: Label) -> void:
+	var f := display_font()
+	if f != null:
+		l.add_theme_font_override("font", f)
 
 
 ## Квадратная иконка заданного размера, окрашенная в цвет.

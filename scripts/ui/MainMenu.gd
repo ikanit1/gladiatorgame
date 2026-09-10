@@ -51,7 +51,7 @@ func _build() -> void:
 	emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_menu_page.add_child(emblem)
 
-	var title := UITheme.label("AIFIGHT", 58, UITheme.ACCENT, 6)
+	var title := UITheme.title("AIFIGHT", 58, UITheme.ACCENT, 6)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_menu_page.add_child(title)
 
@@ -145,7 +145,7 @@ func _build_settings() -> Control:
 	outer.add_theme_constant_override("separation", 12)
 	panel.add_child(outer)
 
-	var head := UITheme.label("НАСТРОЙКИ", 20, UITheme.ACCENT, 0)
+	var head := UITheme.title("НАСТРОЙКИ", 22, UITheme.ACCENT, 0)
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(head)
 

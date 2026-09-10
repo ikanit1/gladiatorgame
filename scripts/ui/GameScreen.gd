@@ -213,7 +213,7 @@ func _caption_row(icon_name: String, text: String, color: Color) -> HBoxContaine
 	row.add_theme_constant_override("separation", 6)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(UITheme.icon_rect(icon_name, 14, color))
-	row.add_child(UITheme.label(text, 11, color, 3))
+	row.add_child(UITheme.title(text, 12, color, 3))
 	return row
 
 
@@ -224,22 +224,32 @@ func _caption_row(icon_name: String, text: String, color: Color) -> HBoxContaine
 ## глаз не знает, где кончается одно число и начинается другое. Иконка
 ## перед каждым значением решает это без всяких подписей.
 func _build_chips() -> void:
+	# У подписей есть обводка, у иконок её нет: на светлом песке арены глифы
+	# без подложки пропадают. Подложка плоская - см. UITheme.pill_style.
+	var back := PanelContainer.new()
+	back.add_theme_stylebox_override("panel", UITheme.pill_style())
+	back.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	back.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	back.position = Vector2(0, 10)
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(back)
+
 	var row := HBoxContainer.new()
-	row.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	row.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	row.position = Vector2(0, 12)
 	row.add_theme_constant_override("separation", 20)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hud.add_child(row)
+	back.add_child(row)
 
-	for spec in [["arch", "room", UITheme.DIM], ["banner", "wave", UITheme.DIM],
-			["skull", "kills", UITheme.DIM], ["sword", "alive", UITheme.DANGER],
-			["hourglass", "time", UITheme.DIM]]:
+	for spec in [["arch", "room", UITheme.FG], ["banner", "wave", UITheme.FG],
+			["skull", "kills", UITheme.FG], ["sword", "alive", UITheme.DANGER],
+			["hourglass", "time", UITheme.FG]]:
 		var chip := HBoxContainer.new()
-		chip.add_theme_constant_override("separation", 5)
+		chip.add_theme_constant_override("separation", 6)
 		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		chip.add_child(UITheme.icon_rect(str(spec[0]), 18, spec[2]))
-		var value := UITheme.label("", 15, UITheme.FG)
+		var ic := UITheme.icon_rect(str(spec[0]), 21, spec[2])
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		chip.add_child(ic)
+		var value := UITheme.label("", 16, UITheme.FG, 3)
+		value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		chip.add_child(value)
 		_chips[str(spec[1])] = value
 		row.add_child(chip)
@@ -519,7 +529,7 @@ func _show_upgrades() -> void:
 	for c in _upgrade_box.get_children():
 		c.queue_free()
 
-	var title := UITheme.label("Волна отбита — выбери награду", 26, UITheme.ACCENT, 0)
+	var title := UITheme.title("Волна отбита — выбери награду", 28, UITheme.ACCENT, 0)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_upgrade_box.add_child(title)
 	_upgrade_box.add_child(_spacer(6))
@@ -574,7 +584,7 @@ func _upgrade_card(u: Dictionary) -> Button:
 	col.add_theme_constant_override("separation", 2)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(col)
-	col.add_child(UITheme.label(str(u["name"]), 17, UITheme.FG, 0))
+	col.add_child(UITheme.title(str(u["name"]), 19, UITheme.FG, 0))
 	col.add_child(UITheme.label(str(u["desc"]), 13, UITheme.DIM, 0))
 	return b
 
@@ -639,7 +649,7 @@ func _build_overlay(layer: CanvasLayer) -> void:
 
 	box.add_child(UITheme.icon_rect("emblem", 64, UITheme.ACCENT))
 
-	_overlay_title = UITheme.label("", 34, UITheme.ACCENT, 0)
+	_overlay_title = UITheme.title("", 38, UITheme.ACCENT, 0)
 	_overlay_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_overlay_title)
 
