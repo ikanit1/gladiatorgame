@@ -1,0 +1,15 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/run/Pickup.gd" id="1_p"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_1"]
+radius = 0.22
+height = 0.44
+radial_segments = 12
+rings = 6
+
+[node name="Pickup" type="Node3D"]
+script = ExtResource("1_p")
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_1")
