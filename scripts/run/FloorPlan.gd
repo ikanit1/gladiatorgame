@@ -49,8 +49,13 @@ static func generate(floor_number: int, rng: RandomNumberGenerator) -> FloorPlan
 		plan._build_doors()
 		if int(plan.distances.get(plan.boss_cell, 0)) >= MIN_BOSS_DISTANCE:
 			return plan
-	# Двадцать попыток не дали нужного расстояния - отдаём последнюю.
-	# Планировка валидна, просто короче желаемого.
+	# MAX_ATTEMPTS попыток не дали нужного расстояния - отдаём последнюю.
+	# Планировка валидна, просто короче желаемого, но это и есть то самое
+	# ограничение, ради которого существует вся задача - молчать нельзя.
+	# push_warning, а не assert: assert вырезается в релизной сборке, а
+	# generate вызывается в игре.
+	push_warning("FloorPlan: за %d попыток не нашли планировку с dist(босс) >= %d (этаж %d, получили %d)"
+		% [MAX_ATTEMPTS, MIN_BOSS_DISTANCE, floor_number, int(plan.distances.get(plan.boss_cell, 0))])
 	return plan
 
 
@@ -135,9 +140,10 @@ func _target_room_count(rng: RandomNumberGenerator) -> int:
 ##
 ## Инвариант связности: любая клетка, попадающая в rooms, обязана соседствовать
 ## хотя бы с одной уже существующей клеткой, и комнаты никогда не удаляются.
-## Именно поэтому BFS от старта (_measure_distances) достаёт всех. Всё, что
-## кладёт клетку в обход этого цикла (например _append_dead_end), обязано само
-## соблюдать это правило и само проставлять клетке distances.
+## Именно поэтому BFS от старта (_measure_distances) достаёт всех. Правило
+## общее и без исключений: всё, что кладёт клетку в обход этого цикла
+## (_append_dead_end, _place_secret), обязано само его соблюдать и само
+## проставлять клетке distances.
 func _grow(rng: RandomNumberGenerator) -> void:
 	rooms.clear()
 	_put(START_CELL, RoomType.START)
@@ -230,6 +236,10 @@ func _assign_special_rooms(rng: RandomNumberGenerator) -> void:
 	for room_type in wanted:
 		var cell: Vector2i = dead_ends.pop_front() if not dead_ends.is_empty() else _append_dead_end()
 		if cell == Vector2i(-1, -1):
+			# Спека обещает эту комнату на каждом этаже без исключений - молча
+			# пропускать её нельзя, даже если случай крайне редкий.
+			push_warning("FloorPlan: не нашлось места под комнату %s на этаже %d"
+				% [RoomType.keys()[room_type], floor_number])
 			continue
 		rooms[cell]["type"] = room_type
 
@@ -288,6 +298,23 @@ func _place_secret(rng: RandomNumberGenerator) -> void:
 	_put(best, RoomType.SECRET)
 	secret_cell = best
 
+	# Секретка кладётся в обход _grow, поэтому сама отвечает за свой distances
+	# (см. инвариант над _grow). Проставляем вручную, а не через BFS: к этому
+	# моменту _measure_distances уже отработал, а секретка появляется позже
+	# него - обычный проход её не увидит. Берём минимум среди уже посчитанных
+	# соседей плюс шаг; если ни у одного соседа расстояния ещё нет (теоретически
+	# невозможно - секретка всегда рядом хоть с одной комнатой из _grow), просто
+	# ничего не проставляем, лишь бы не упасть.
+	var nearest := -1
+	for offset in SIDE_OFFSETS:
+		var n: Vector2i = best + offset
+		if distances.has(n):
+			var d := int(distances[n])
+			if nearest == -1 or d < nearest:
+				nearest = d
+	if nearest != -1:
+		distances[best] = nearest + 1
+
 
 ## Двери строятся симметрично: каждая пара соседей получает по двери с обеих
 ## сторон с одинаковым состоянием. Иначе игрок может войти в комнату и не
@@ -296,8 +323,16 @@ func _build_doors() -> void:
 	for cell in rooms.keys():
 		rooms[cell]["doors"] = {}
 
+	# Состояние считаем один раз на ребро и сразу пишем в обе стороны из одного
+	# значения, а не дважды - по разу с каждой стороны. Сегодня это ничего не
+	# меняет, потому что _door_state_between симметрична по аргументам, но эта
+	# симметрия нигде не зафиксирована как контракт: если завтра появится
+	# асимметричное правило (например «заперто только со стороны входа»),
+	# результат не должен тихо зависеть от порядка обхода rooms.keys().
+	# Юга и востока достаточно, чтобы обойти каждое ребро сетки ровно один раз.
+	var edge_sides := [1, 2]  # юг, восток
 	for cell in rooms.keys():
-		for side in range(SIDE_OFFSETS.size()):
+		for side in edge_sides:
 			var other: Vector2i = cell + SIDE_OFFSETS[side]
 			if not rooms.has(other):
 				continue

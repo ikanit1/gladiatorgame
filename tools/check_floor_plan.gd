@@ -7,6 +7,11 @@ func _init() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 777
 
+	# Секретка важнее запертости (см. _door_state_between): считаем за весь
+	# прогон, сколько раз секретка граничила с запертой комнатой, чтобы
+	# покрытие этой комбинации не зависело от удачи генератора.
+	var secret_locked_door_count := 0
+
 	for floor_number in range(1, ThreatCurve.FLOOR_COUNT + 1):
 		var min_rooms := 99
 		var max_rooms := 0
@@ -16,10 +21,15 @@ func _init() -> void:
 			min_rooms = mini(min_rooms, plan.room_count())
 			max_rooms = maxi(max_rooms, plan.room_count())
 
+			# Инвариант размеров: после правки в _place_secret у каждой комнаты,
+			# включая секретку, обязано быть расстояние. Дешевле и строже
+			# поштучного обхода ниже, но сам обход не убираем - он называет
+			# конкретную недостижимую клетку, а не просто число несовпадения.
+			r.eq(plan.distances.size(), plan.rooms.size(),
+				"distances.size() == rooms.size() (этаж %d)" % floor_number)
+
 			# Связность: каждая комната должна иметь расстояние от старта
 			for cell in plan.rooms.keys():
-				if cell == plan.secret_cell:
-					continue   # секретка вне обычного обхода
 				r.check(plan.distances.has(cell),
 					"комната %s недостижима от старта (этаж %d)" % [cell, floor_number])
 
@@ -74,6 +84,22 @@ func _init() -> void:
 					secret_links += 1
 			r.ge(float(secret_links), 1.0, "секретка примыкает к комнате")
 
+			# Приоритет состояния двери: если секретка граничит с запертой
+			# комнатой, состояние обязано быть CRACKED_WALL (в секретку нет
+			# обычной двери - только треснувшая стена, это важнее запертости).
+			# Полагаться на случай, что генератор вообще породит такую пару,
+			# нельзя - считаем и проверяем каждый встреченный случай отдельно.
+			for side in range(FloorPlan.SIDE_OFFSETS.size()):
+				var neighbour: Vector2i = plan.secret_cell + FloorPlan.SIDE_OFFSETS[side]
+				if not plan.has_room(neighbour):
+					continue
+				if int(plan.spec(neighbour).get("type", -1)) != FloorPlan.RoomType.LOCKED:
+					continue
+				secret_locked_door_count += 1
+				r.eq(plan.doors_of(plan.secret_cell).get(side, -1), FloorPlan.DoorState.CRACKED_WALL,
+					"секретка %s <-> запертая %s должна быть CRACKED_WALL (этаж %d)"
+						% [plan.secret_cell, neighbour, floor_number])
+
 		r.in_range(float(min_rooms), 8.0, 30.0,
 			"минимум комнат на этаже %d в разумных границах" % floor_number)
 		r.in_range(float(max_rooms), 8.0, 30.0,
@@ -91,5 +117,13 @@ func _init() -> void:
 	for d in keys:
 		parts.append("%d шагов: %d" % [d, hist[d]])
 	print("  распределение расстояния до босса на первом этаже — " + ", ".join(parts))
+
+	# Покрытие не должно зависеть от удачи генератора: если за весь прогон
+	# комбинация "секретка граничит с запертой" ни разу не встретилась, значит
+	# приоритет CRACKED_WALL над LOCKED_BY_KEY выше по факту не проверялся.
+	print("  секретка-запертая: дверей встречено %d" % secret_locked_door_count)
+	r.check(secret_locked_door_count >= 10,
+		"секретка-запертая встречается достаточно часто для покрытия (получили %d)"
+			% secret_locked_door_count)
 
 	r.finish(self)
