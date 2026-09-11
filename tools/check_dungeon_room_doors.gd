@@ -39,6 +39,14 @@ func run_checks() -> void:
 	await _check_no_doors_room(r)
 	await _check_wall_counts(r)
 
+	# Проверки по находкам ревью задачи 6 (правки 1-4 DungeonRoom.gd).
+	await _check_secret_wall_indistinguishable(r)
+	await _check_secret_wall_opens(r)
+	await _check_secret_wall_vs_locked_door(r)
+	await _check_has_door(r)
+	await _check_frame_recolors_on_state_change(r)
+	await _check_repeated_setup_is_guarded(r)
+
 	r.finish(self)
 
 
@@ -253,3 +261,243 @@ func _count_wall_shapes(room: DungeonRoom) -> Dictionary:
 		else:
 			wall += 1
 	return {"wall": wall, "blocker": blocker}
+
+
+## Имена узлов, которые wall_detail() вешает на обычный сегмент стены
+## (FortressDecor.gd). Обычный визуальный меш стены/панели своего имени не
+## получает (движок сам называет его "MeshInstance3D..."), поэтому фильтр по
+## этим именам отделяет декоративные накладки от самого стенового фасада.
+const _WALL_DETAIL_NAMES := ["WallCornice", "WallFooting", "WallPillar"]
+
+
+## Первый "голый" стеновой меш под WallVisual на стороне side (без учёта
+## накладок wall_detail): у стен севера/юга он растянут по x и сплюснут по z,
+## у востока/запада - наоборот. Формула размера в _add_wall не зависит от
+## конкретной клетки, только от стороны, так что для сравнения размеров
+## годится любой сегмент этой стороны, а не обязательно сосед двери.
+func _find_plain_wall_mesh(wall_visual: Node, side: int) -> BoxMesh:
+	var along_x := side < 2  # север/юг: широкий по x, сплюснут по z
+	for child in wall_visual.get_children():
+		if not (child is MeshInstance3D):
+			continue
+		if str(child.name) in _WALL_DETAIL_NAMES:
+			continue
+		var mesh: Mesh = (child as MeshInstance3D).mesh
+		if not (mesh is BoxMesh):
+			continue
+		var box := mesh as BoxMesh
+		if (box.size.x > box.size.z) == along_x:
+			return box
+	return null
+
+
+## Правка 1 ревью задачи 6: секретная стена (CRACKED_WALL) обязана быть
+## неотличима от соседнего сегмента стены снаружи - без рамки, без жаровен и
+## баннера входа, без кованых ворот, и с тем же по размеру мешем, что и у
+## обычной стены той же стороны.
+##
+## Как поймать регресс: временно верни в _build() безусловный вызов
+## _add_door_frame для всех состояний (включая CRACKED_WALL) - эта проверка
+## должна упасть на "нет жаровен/баннера у CRACKED_WALL". Проверено вручную
+## при написании правки, ниже оставлен только итоговый вариант.
+func _check_secret_wall_indistinguishable(r: TestReport) -> void:
+	var doors := {0: FloorPlan.DoorState.CRACKED_WALL}
+	var room := DungeonRoom.new()
+	root.add_child(room)
+	room.setup(ROOM_CFG, Vector3.ZERO, doors, true)
+	await process_frame
+
+	var wall_visual: Node = room.get_node("WallVisual")
+	var has_entrance_prop := false
+	for child in wall_visual.get_children():
+		var n := str(child.name)
+		if n.begins_with("GateBrazier") or n.begins_with("BrazierFlame") \
+				or n.begins_with("GateBanner") or n.begins_with("BannerRod") \
+				or n.begins_with("BronzeDiamond"):
+			has_entrance_prop = true
+	r.check(not has_entrance_prop,
+		"CRACKED_WALL: под WallVisual нет жаровен/баннера входа (entrance_details не звали)")
+
+	var panel := room.get_node_or_null("ClosedDoor_0")
+	r.check(panel != null, "CRACKED_WALL: панель ClosedDoor_0 существует")
+	if panel == null:
+		room.free()
+		await process_frame
+		return
+
+	r.check(panel.visible, "CRACKED_WALL: панель видима до подрыва стены")
+	r.check(panel.get_node_or_null("IronPortcullis") == null,
+		"CRACKED_WALL: в панели нет кованых ворот IronPortcullis")
+
+	var secret_mesh: BoxMesh = (panel as MeshInstance3D).mesh as BoxMesh
+	r.check(secret_mesh != null, "CRACKED_WALL: панель использует BoxMesh, как обычная стена")
+
+	var reference_mesh := _find_plain_wall_mesh(wall_visual, 0)
+	r.check(reference_mesh != null, "нашли обычный стеновой сегмент стороны 0 для сравнения")
+	if secret_mesh != null and reference_mesh != null:
+		r.eq(secret_mesh.size, reference_mesh.size,
+			"панель CRACKED_WALL по размеру меша совпадает с обычным сегментом стены")
+
+	room.free()
+	await process_frame
+
+
+## Правка 1: подрыв стены - один вызов set_door_state(side, OPEN) должен
+## открывать CRACKED_WALL точно так же, как обычную дверь: панель прячется,
+## блокиратор проёма выключается (после await process_frame, т.к. отключение
+## идёт через set_deferred).
+func _check_secret_wall_opens(r: TestReport) -> void:
+	var doors := {0: FloorPlan.DoorState.CRACKED_WALL}
+	var room := DungeonRoom.new()
+	root.add_child(room)
+	room.setup(ROOM_CFG, Vector3.ZERO, doors, true)
+	await process_frame
+
+	var blocker: CollisionShape3D = room.get_node("WallCollision/DoorBlocker_0")
+	var panel: MeshInstance3D = room.get_node("ClosedDoor_0")
+	r.check(not blocker.disabled, "CRACKED_WALL: изначально коллизия стены на месте")
+	r.check(panel.visible, "CRACKED_WALL: изначально панель-стена видима")
+
+	room.set_door_state(0, FloorPlan.DoorState.OPEN)
+	await process_frame
+	r.check(blocker.disabled, "CRACKED_WALL: после подрыва блокиратор выключен")
+	r.check(not panel.visible, "CRACKED_WALL: после подрыва панель-стена скрыта")
+	r.eq(room.door_state(0), FloorPlan.DoorState.OPEN,
+		"CRACKED_WALL: door_state отражает открытое состояние после подрыва")
+
+	room.free()
+	await process_frame
+
+
+## Правка 1, регресс в обе стороны: одна сторона CRACKED_WALL, другая
+## LOCKED_BY_KEY. У запертой на ключ двери убранство входа (жаровни) и ворота
+## должны остаться на месте, у секретной - не появиться вовсе. Без этой связки
+## проверка выше могла бы случайно пройти из-за поломки, которая просто убрала
+## бы decor у ВСЕХ дверей, а не только у CRACKED_WALL.
+func _check_secret_wall_vs_locked_door(r: TestReport) -> void:
+	var doors := {
+		0: FloorPlan.DoorState.CRACKED_WALL,
+		1: FloorPlan.DoorState.LOCKED_BY_KEY,
+	}
+	var room := DungeonRoom.new()
+	root.add_child(room)
+	room.setup(ROOM_CFG, Vector3.ZERO, doors, true)
+	await process_frame
+
+	var wall_visual: Node = room.get_node("WallVisual")
+	# Внимание: FortressDecor.entrance_details() зовёт root.add_child(prop) без
+	# force_readable_name, а обе жаровни одной двери называются одинаково
+	# ("GateBrazier") - Godot оставляет читаемое имя только первой, вторая
+	# молча получает анонимное "@Node3D@N" (это существующее поведение
+	# FortressDecor.gd, не связанное с этой правкой). Поэтому считаем "жаровня
+	# входа была добавлена хотя бы раз", а не ровно дважды - иначе проверка
+	# была бы завязана на эту не относящуюся к делу особенность именования.
+	var braziers := 0
+	for child in wall_visual.get_children():
+		if str(child.name).begins_with("GateBrazier"):
+			braziers += 1
+	r.check(braziers >= 1, "у двери LOCKED_BY_KEY жаровня входа осталась")
+
+	var secret_panel := room.get_node("ClosedDoor_0")
+	var locked_panel := room.get_node("ClosedDoor_1")
+	r.check(secret_panel.get_node_or_null("IronPortcullis") == null,
+		"у CRACKED_WALL кованых ворот нет")
+	r.check(locked_panel.get_node_or_null("IronPortcullis") != null,
+		"у LOCKED_BY_KEY кованые ворота остались")
+
+	room.free()
+	await process_frame
+
+
+## Правка 2: has_door(side) обязана быть true ровно для сторон из словаря
+## doors и false для всех остальных, включая случай, когда единственная дверь
+## комнаты - CRACKED_WALL.
+func _check_has_door(r: TestReport) -> void:
+	var doors := {
+		0: FloorPlan.DoorState.OPEN,
+		2: FloorPlan.DoorState.CRACKED_WALL,
+	}
+	var room := DungeonRoom.new()
+	root.add_child(room)
+	room.setup(ROOM_CFG, Vector3.ZERO, doors, false)
+	await process_frame
+
+	for side in range(4):
+		r.eq(room.has_door(side), doors.has(side),
+			"has_door(%s) соответствует наличию двери в словаре" % SIDE_NAMES[side])
+
+	room.free()
+	await process_frame
+
+
+## Правка 3: после set_door_state рамка обязана перекраситься так, будто дверь
+## сразу была построена в новом состоянии. Сравниваем с эталонами - дверьми,
+## построенными сразу закрытой и сразу открытой, - а не с зашитыми цветами:
+## так проверка переживёт правку палитры.
+func _check_frame_recolors_on_state_change(r: TestReport) -> void:
+	var ref_open := DungeonRoom.new()
+	root.add_child(ref_open)
+	ref_open.setup(ROOM_CFG, Vector3.ZERO, {0: FloorPlan.DoorState.OPEN}, true)
+
+	var ref_closed := DungeonRoom.new()
+	root.add_child(ref_closed)
+	ref_closed.setup(ROOM_CFG, Vector3.ZERO, {0: FloorPlan.DoorState.LOCKED_BY_FIGHT}, true)
+
+	var dynamic_room := DungeonRoom.new()
+	root.add_child(dynamic_room)
+	dynamic_room.setup(ROOM_CFG, Vector3.ZERO, {0: FloorPlan.DoorState.LOCKED_BY_FIGHT}, true)
+	await process_frame
+
+	var open_mat: StandardMaterial3D = ref_open._frame_materials.get(0)
+	var closed_mat: StandardMaterial3D = ref_closed._frame_materials.get(0)
+	var dyn_mat: StandardMaterial3D = dynamic_room._frame_materials.get(0)
+	r.check(open_mat != null and closed_mat != null and dyn_mat != null,
+		"у всех трёх комнат нашёлся материал рамки стороны 0")
+
+	if open_mat != null and closed_mat != null and dyn_mat != null:
+		r.check(open_mat.albedo_color != closed_mat.albedo_color,
+			"эталоны открыто/заперто выглядят по-разному (проверка не выродилась)")
+		r.eq(dyn_mat.albedo_color, closed_mat.albedo_color,
+			"построенная запертой дверь изначально выглядит как эталон «заперто»")
+
+		dynamic_room.set_door_state(0, FloorPlan.DoorState.OPEN)
+		await process_frame
+		r.eq(dyn_mat.albedo_color, open_mat.albedo_color,
+			"после открытия цвет рамки стал как у эталона «открыто»")
+		r.eq(dyn_mat.emission_enabled, open_mat.emission_enabled,
+			"после открытия свечение рамки стало как у эталона «открыто»")
+
+		dynamic_room.set_door_state(0, FloorPlan.DoorState.LOCKED_BY_FIGHT)
+		await process_frame
+		r.eq(dyn_mat.albedo_color, closed_mat.albedo_color,
+			"после повторного запирания рамка снова выглядит как эталон «заперто»")
+		r.eq(dyn_mat.emission_enabled, closed_mat.emission_enabled,
+			"после повторного запирания свечение рамки снова как у эталона «заперто»")
+
+	ref_open.free()
+	ref_closed.free()
+	dynamic_room.free()
+	await process_frame
+
+
+## Правка 4: повторный setup() на уже построенной комнате не должен удваивать
+## коллизионные формы в WallCollision. push_error в выводе при этом ожидаем -
+## это и есть защита, отменяющая повторную постройку, а не поломка.
+func _check_repeated_setup_is_guarded(r: TestReport) -> void:
+	var room := DungeonRoom.new()
+	root.add_child(room)
+	var doors := {0: FloorPlan.DoorState.OPEN}
+	room.setup(ROOM_CFG, Vector3.ZERO, doors, false)
+	await process_frame
+
+	var wall_collision: Node = room.get_node("WallCollision")
+	var before := wall_collision.get_child_count()
+
+	room.setup(ROOM_CFG, Vector3.ZERO, doors, false)
+	await process_frame
+
+	var after := wall_collision.get_child_count()
+	r.eq(after, before, "повторный setup() не удваивает формы в WallCollision")
+
+	room.free()
+	await process_frame

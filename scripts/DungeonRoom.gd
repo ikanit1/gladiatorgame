@@ -29,6 +29,11 @@ var _min_cell := Vector2i.ZERO
 var _max_cell := Vector2i.ZERO
 var _blockers: Dictionary = {}   ## side -> CollisionShape3D
 var _panels: Dictionary = {}     ## side -> MeshInstance3D
+## side -> StandardMaterial3D рамки двери. Записи нет для CRACKED_WALL - у
+## секретной стены рамки нет вообще (см. _build). set_door_state пересчитывает
+## цвет через этот же материал, а не создаёт новый, поэтому дверь и рамка не
+## могут разъехаться по состоянию.
+var _frame_materials: Dictionary = {}
 
 
 func setup(new_config: Dictionary, center: Vector3, new_doors: Dictionary,
@@ -41,6 +46,16 @@ func setup(new_config: Dictionary, center: Vector3, new_doors: Dictionary,
 
 
 func _build() -> void:
+	if not _cells.is_empty():
+		# Повторный setup() построил бы второе поддерево (FloorCollision,
+		# WallCollision и так далее) поверх первого, а словари _blockers/
+		# _panels/_cells/_frame_materials просто перезаписались бы новыми
+		# значениями - старые узлы остались бы висеть в дереве осиротевшими,
+		# их никто не находит и не освобождает. push_error, а не assert:
+		# assert вырезается в релизной сборке, а setup() зовёт игровой код
+		# (кеш комнат из задачи 7).
+		push_error("DungeonRoom: повторный setup() на уже построенной комнате - отменяю, чтобы не задвоить поддерево")
+		return
 	var cells: Array[Vector2i] = RoomGenerator.cells_for(config)
 	if cells.is_empty():
 		return
@@ -113,9 +128,13 @@ func _build() -> void:
 
 	for side in doors.keys():
 		var state: int = int(doors[side])
-		_add_door_frame(wall_visual, side, wall_material,
-			state == FloorPlan.DoorState.OPEN)
-		_create_door_blocker(wall_body, side)
+		if state != FloorPlan.DoorState.CRACKED_WALL:
+			_add_door_frame(wall_visual, side, wall_material,
+				state == FloorPlan.DoorState.OPEN)
+		# Для CRACKED_WALL рамку, жаровни и баннер не строим вообще - секретная
+		# стена по спеке не должна отличаться от соседней стены, пока её не
+		# подорвут бомбой во втором плане.
+		_create_door_blocker(wall_body, wall_visual, side, wall_material, state)
 		set_door_state(side, state)
 
 	# Потолок строится только при visuals_enabled: в обучении камеры нет,
@@ -244,18 +263,27 @@ func _wall_transform(cell: Vector2i, side: int) -> Array:
 	return [p + Vector3.UP * (WALL_HEIGHT * 0.5), size]
 
 
+## with_collision=false пропускает создание коллизионной формы - используется
+## для центральной клетки CRACKED_WALL, где коллизию проёма уже даёт отдельный
+## DoorBlocker_<side> (он толще обычной стены, см. _door_transform), и вторая
+## коллизионная форма поверх него была бы лишним нахлёстом.
+## Возвращает созданный визуальный меш (или null при visuals_enabled=false),
+## чтобы вызывающий код мог переиспользовать фасад стены как панель секретной
+## двери - см. _build_secret_wall_panel.
 func _add_wall(body: StaticBody3D, visual_root: Node3D, cell: Vector2i,
-		 side: int, material: StandardMaterial3D) -> void:
+		 side: int, material: StandardMaterial3D,
+		 with_collision: bool = true) -> MeshInstance3D:
 	var data := _wall_transform(cell, side)
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = data[1]
-	shape.shape = box
-	shape.position = data[0]
-	body.add_child(shape)
+	if with_collision:
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = data[1]
+		shape.shape = box
+		shape.position = data[0]
+		body.add_child(shape)
 
 	if visual_root == null:
-		return
+		return null
 	var mesh := MeshInstance3D.new()
 	var wall_mesh := BoxMesh.new()
 	wall_mesh.size = data[1]
@@ -271,21 +299,37 @@ func _add_wall(body: StaticBody3D, visual_root: Node3D, cell: Vector2i,
 	visual_root.add_child(mesh)
 	var decor := load("res://scripts/FortressDecor.gd")
 	decor.wall_detail(visual_root, mesh.position, side, cell)
+	return mesh
+
+
+## Единое правило цвета рамки двери - вызывается и при постройке
+## (_add_door_frame), и при смене состояния (set_door_state), чтобы решение
+## «какой цвет у какого состояния» не разъехалось по двум местам. Открыто -
+## холодный металл без свечения, заперто (бой или ключ - разницы для рамки
+## нет) - тёплый акцент со свечением.
+func _apply_frame_look(mat: StandardMaterial3D, is_open: bool) -> void:
+	mat.albedo_color = Color(0.66, 0.70, 0.76) if is_open else Color(0.90, 0.76, 0.54)
+	mat.emission_enabled = not is_open
+	mat.emission = Color(0.75, 0.28, 0.08)
+	mat.emission_energy_multiplier = 0.12
 
 
 func _add_door_frame(visual_root: Node3D, side: int,
-		material: StandardMaterial3D, is_entrance: bool) -> void:
+		material: StandardMaterial3D, is_open: bool) -> void:
 	# _add_door_frame теперь вызывается только для реально существующих
-	# дверей из словаря doors, поэтому проверка на «нет двери» не нужна.
+	# дверей из словаря doors, не считая CRACKED_WALL (у секретной стены рамки
+	# нет вообще - см. вызов в _build), поэтому проверка на «нет двери» здесь
+	# не нужна.
 	if visual_root == null:
 		return
 	var center := _side_center(side)
 	center.y = 0.0
 	var accent := material.duplicate() as StandardMaterial3D
-	accent.albedo_color = Color(0.66, 0.70, 0.76) if is_entrance else Color(0.90, 0.76, 0.54)
-	accent.emission_enabled = not is_entrance
-	accent.emission = Color(0.75, 0.28, 0.08)
-	accent.emission_energy_multiplier = 0.12
+	_apply_frame_look(accent, is_open)
+	# Сохраняем материал по стороне: set_door_state перекрашивает именно его,
+	# а не создаёт новый, поэтому дверь после боя/ключа и её рамка не могут
+	# разъехаться по состоянию (см. Правку 3 ревью задачи 6).
+	_frame_materials[side] = accent
 
 	var vertical_size := Vector3(0.34, WALL_HEIGHT, 0.42)
 	var horizontal_size := Vector3(DOOR_WIDTH + 0.7, 0.38, 0.42)
@@ -315,7 +359,8 @@ func _add_frame_piece(root: Node3D, pos: Vector3, size: Vector3,
 	root.add_child(mesh)
 
 
-func _create_door_blocker(body: StaticBody3D, side: int) -> void:
+func _create_door_blocker(body: StaticBody3D, visual_root: Node3D,
+		side: int, material: StandardMaterial3D, state: int) -> void:
 	var data := _door_transform(side)
 	var blocker := CollisionShape3D.new()
 	blocker.name = "DoorBlocker_%d" % side
@@ -326,14 +371,64 @@ func _create_door_blocker(body: StaticBody3D, side: int) -> void:
 	body.add_child(blocker)
 	_blockers[side] = blocker
 
-	if visuals_enabled:
-		var panel := MeshInstance3D.new()
-		panel.name = "ClosedDoor_%d" % side
-		panel.position = data[0]
-		add_child(panel)
-		var decor := load("res://scripts/FortressDecor.gd")
-		decor.gate(panel, side)
-		_panels[side] = panel
+	if not visuals_enabled:
+		return
+
+	if state == FloorPlan.DoorState.CRACKED_WALL:
+		# Секретная стена: панель маскируется под обычный сегмент стены, а не
+		# под кованые ворота - см. _build_secret_wall_panel.
+		_panels[side] = _build_secret_wall_panel(visual_root, side, material)
+		return
+
+	var panel := MeshInstance3D.new()
+	panel.name = "ClosedDoor_%d" % side
+	panel.position = data[0]
+	add_child(panel)
+	var decor := load("res://scripts/FortressDecor.gd")
+	decor.gate(panel, side)
+	_panels[side] = panel
+
+
+## Клетка на границе комнаты, где стена стороны side пропускает проём под
+## дверь - та же клетка, что даёт true в _is_center_door_cell(cell, side).
+func _center_door_cell(side: int) -> Vector2i:
+	match side:
+		0: return Vector2i(0, _min_cell.y)
+		1: return Vector2i(0, _max_cell.y)
+		2: return Vector2i(_max_cell.x, 0)
+		_: return Vector2i(_min_cell.x, 0)
+
+
+## Панель CRACKED_WALL обязана быть неотличима от соседней стены снаружи -
+## по спеке секретка «не на карте», вход в неё только через подрыв бомбой
+## (второй план). Переиспользуем визуальную часть _add_wall на центральной
+## клетке двери: тот же side и материал дают точно тот же BoxMesh.size и тот
+## же отступ фасада (0.26), что и у соседнего сегмента стены - без этого
+## переиспользования пришлось бы дублировать магические числа инсета и
+## получить либо нарост, либо провал в стене.
+##
+## ЗАМЕТКА ДЛЯ ВТОРОГО ПЛАНА (бомбы/подрыв): set_door_state(side, OPEN) прячет
+## эту панель и выключает DoorBlocker_<side> - этого достаточно для пролома.
+## Но _add_wall ниже, как и для любой обычной стены, вызывает
+## FortressDecor.wall_detail() и вешает на WallVisual WallCornice/WallFooting
+## (и WallPillar, если клетка попала в шаг колонн) - при открытии пролома эти
+## накладки сами не исчезнут и останутся висеть в воздухе. Второй план обязан
+## убрать/спрятать их вместе с открытием двери.
+func _build_secret_wall_panel(visual_root: Node3D, side: int,
+		material: StandardMaterial3D) -> MeshInstance3D:
+	var door_cell := _center_door_cell(side)
+	# with_collision=false: коллизию проёма уже даёт DoorBlocker_<side> выше.
+	var mesh := _add_wall(null, visual_root, door_cell, side, material, false)
+	if mesh == null:
+		return null
+	# Меш родился в WallVisual (как и обычная стена) - переносим его в саму
+	# комнату и переименовываем в ClosedDoor_<side>, чтобы к нему обращались
+	# ровно так же, как к панели любой другой двери (room.get_node(...),
+	# set_door_state).
+	visual_root.remove_child(mesh)
+	add_child(mesh)
+	mesh.name = "ClosedDoor_%d" % side
+	return mesh
 
 
 func _door_transform(side: int) -> Array:
@@ -357,8 +452,25 @@ func set_door_state(side: int, state: int) -> void:
 	var panel: MeshInstance3D = _panels.get(side)
 	if panel != null:
 		panel.visible = not open
+	var accent: StandardMaterial3D = _frame_materials.get(side)
+	if accent != null:
+		# У CRACKED_WALL рамки нет вообще - тогда _frame_materials.get(side)
+		# вернёт null, и перекрашивать нечего.
+		_apply_frame_look(accent, open)
 
 
+## Есть ли дверь на этой стороне, в любом состоянии (включая CRACKED_WALL).
+## Отдельная функция, а не проверка door_state(): у стороны без двери
+## door_state всё равно обязана что-то вернуть (см. её комментарий ниже), и
+## это значение - не признак настоящего запертого боем прохода.
+func has_door(side: int) -> bool:
+	return doors.has(side)
+
+
+## Внимание: для стороны, где двери нет вообще, возвращает
+## LOCKED_BY_FIGHT - это лишь «безопасное» значение по умолчанию, а не
+## признак существующего запертого боем прохода. Перед тем как опираться на
+## результат, сначала проверь has_door(side).
 func door_state(side: int) -> int:
 	return int(doors.get(side, FloorPlan.DoorState.LOCKED_BY_FIGHT))
 
