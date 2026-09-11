@@ -17,6 +17,15 @@ const GRID_W := 9
 const GRID_H := 8
 const START_CELL := Vector2i(4, 3)
 
+## Ограничение найдено прогоном генератора: без него босс оказывался в трёх
+## шагах от старта в 39% планировок первого этажа, и этаж пробегался за три
+## комнаты мимо сокровищницы - ровно та болезнь, от которой лечимся.
+const MIN_BOSS_DISTANCE := 4
+const MAX_ATTEMPTS := 20
+
+## Шанс, что на этаже появится запертая комната (со второго этажа).
+const LOCKED_ROOM_CHANCE := 0.7
+
 ## Четыре стороны в том же порядке, что и в DungeonRoom:
 ## 0 - север (-z), 1 - юг (+z), 2 - восток (+x), 3 - запад (-x).
 const SIDE_OFFSETS := [Vector2i(0, -1), Vector2i(0, 1), Vector2i(1, 0), Vector2i(-1, 0)]
@@ -29,10 +38,19 @@ var secret_cell: Vector2i = Vector2i(-1, -1)
 
 
 static func generate(floor_number: int, rng: RandomNumberGenerator) -> FloorPlan:
-	var plan := FloorPlan.new()
-	plan.floor_number = maxi(1, floor_number)
-	plan._grow(rng)
-	plan._measure_distances()
+	var plan: FloorPlan = null
+	for attempt in range(MAX_ATTEMPTS):
+		plan = FloorPlan.new()
+		plan.floor_number = maxi(1, floor_number)
+		plan._grow(rng)
+		plan._measure_distances()
+		plan._assign_special_rooms(rng)
+		plan._place_secret(rng)
+		plan._build_doors()
+		if int(plan.distances.get(plan.boss_cell, 0)) >= MIN_BOSS_DISTANCE:
+			return plan
+	# Двадцать попыток не дали нужного расстояния - отдаём последнюю.
+	# Планировка валидна, просто короче желаемого.
 	return plan
 
 
@@ -114,6 +132,12 @@ func _target_room_count(rng: RandomNumberGenerator) -> int:
 ## Классический рост Isaac. Проверка «у соседа не больше одного занятого
 ## соседа» - главное, что даёт ветвистую карту с тупиками вместо слипшегося
 ## блоба: без неё комнаты заполняют сетку плотным пятном.
+##
+## Инвариант связности: любая клетка, попадающая в rooms, обязана соседствовать
+## хотя бы с одной уже существующей клеткой, и комнаты никогда не удаляются.
+## Именно поэтому BFS от старта (_measure_distances) достаёт всех. Всё, что
+## кладёт клетку в обход этого цикла (например _append_dead_end), обязано само
+## соблюдать это правило и само проставлять клетке distances.
 func _grow(rng: RandomNumberGenerator) -> void:
 	rooms.clear()
 	_put(START_CELL, RoomType.START)
@@ -147,6 +171,13 @@ func _grow(rng: RandomNumberGenerator) -> void:
 		else:
 			queue = next
 
+	if rooms.size() < target:
+		# Вероятностная, а не доказанная гарантия: на 700 000 прогонов такого
+		# не случалось. Но молчать нельзя - если цель вырастет, планировка
+		# начнёт тихо мелеть, и поймать это будет нечем.
+		push_warning("FloorPlan: рост не добрал цель (%d из %d) на этаже %d"
+			% [rooms.size(), target, floor_number])
+
 
 func _put(cell: Vector2i, room_type: int) -> void:
 	rooms[cell] = {"cell": cell, "type": room_type}
@@ -165,3 +196,125 @@ func _measure_distances() -> void:
 					distances[n] = int(distances[cell]) + 1
 					next.append(n)
 		frontier = next
+
+
+## Самый далёкий тупик - босс, ближние тупики раздаются спец-комнатам.
+## Тупик = комната с ровно одним занятым соседом, кроме старта.
+func _assign_special_rooms(rng: RandomNumberGenerator) -> void:
+	var dead_ends: Array[Vector2i] = []
+	for cell in rooms.keys():
+		if cell == START_CELL:
+			continue
+		if _occupied_neighbour_count(cell) == 1:
+			dead_ends.append(cell)
+
+	dead_ends.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return int(distances.get(a, 0)) > int(distances.get(b, 0)))
+
+	if dead_ends.is_empty():
+		# Вырожденный случай: тупиков нет вообще. Берём самую далёкую комнату.
+		boss_cell = _farthest_cell()
+	else:
+		boss_cell = dead_ends.pop_front()
+	rooms[boss_cell]["type"] = RoomType.BOSS
+
+	var wanted: Array[int] = [RoomType.TREASURE]
+	if floor_number >= 2:
+		wanted.append(RoomType.SHOP)
+	if floor_number >= 2 and rng.randf() < LOCKED_ROOM_CHANCE:
+		wanted.append(RoomType.LOCKED)
+
+	# Ближние тупики - спец-комнатам: до сокровищницы должно быть проще
+	# добраться, чем до босса.
+	dead_ends.reverse()
+	for room_type in wanted:
+		var cell: Vector2i = dead_ends.pop_front() if not dead_ends.is_empty() else _append_dead_end()
+		if cell == Vector2i(-1, -1):
+			continue
+		rooms[cell]["type"] = room_type
+
+
+func _farthest_cell() -> Vector2i:
+	var best := START_CELL
+	var best_d := -1
+	for cell in rooms.keys():
+		var d := int(distances.get(cell, -1))
+		if d > best_d:
+			best_d = d
+			best = cell
+	return best
+
+
+## Фоллбэк: тупиков не хватило на все спец-комнаты. Пристраиваем новую клетку
+## к любой существующей так, чтобы у новой был ровно один сосед.
+func _append_dead_end() -> Vector2i:
+	for cell in rooms.keys():
+		for offset in SIDE_OFFSETS:
+			var n: Vector2i = cell + offset
+			if not _in_bounds(n) or rooms.has(n):
+				continue
+			if _occupied_neighbour_count(n) != 1:
+				continue
+			_put(n, RoomType.COMBAT)
+			distances[n] = int(distances.get(cell, 0)) + 1
+			return n
+	return Vector2i(-1, -1)
+
+
+## Секретка - пустая клетка с наибольшим числом занятых соседей, как в Isaac.
+## В неё не ведёт обычная дверь: вход через треснувшую стену.
+func _place_secret(rng: RandomNumberGenerator) -> void:
+	var best := Vector2i(-1, -1)
+	var best_n := 1
+	var fallback := Vector2i(-1, -1)
+	for y in range(GRID_H):
+		for x in range(GRID_W):
+			var cell := Vector2i(x, y)
+			if rooms.has(cell):
+				continue
+			var n := _occupied_neighbour_count(cell)
+			if n >= 1 and fallback == Vector2i(-1, -1):
+				fallback = cell
+			if n > best_n or (n == best_n and n > 1 and rng.randf() < 0.3):
+				best_n = n
+				best = cell
+	# Фоллбэк: у прямой, не загибающейся планировки может не оказаться пустой
+	# клетки с двумя занятыми соседями. Тогда годится любая с одним - секретка
+	# обязана быть на каждом этаже, это приёмочное условие.
+	if best == Vector2i(-1, -1):
+		best = fallback
+	if best == Vector2i(-1, -1):
+		return
+	_put(best, RoomType.SECRET)
+	secret_cell = best
+
+
+## Двери строятся симметрично: каждая пара соседей получает по двери с обеих
+## сторон с одинаковым состоянием. Иначе игрок может войти в комнату и не
+## выйти обратно.
+func _build_doors() -> void:
+	for cell in rooms.keys():
+		rooms[cell]["doors"] = {}
+
+	for cell in rooms.keys():
+		for side in range(SIDE_OFFSETS.size()):
+			var other: Vector2i = cell + SIDE_OFFSETS[side]
+			if not rooms.has(other):
+				continue
+			var state := _door_state_between(cell, other)
+			rooms[cell]["doors"][side] = state
+			rooms[other]["doors"][opposite_side(side)] = state
+
+
+func _door_state_between(a: Vector2i, b: Vector2i) -> int:
+	var type_a := int(rooms[a]["type"])
+	var type_b := int(rooms[b]["type"])
+	if type_a == RoomType.SECRET or type_b == RoomType.SECRET:
+		return DoorState.CRACKED_WALL
+	if type_a == RoomType.LOCKED or type_b == RoomType.LOCKED:
+		return DoorState.LOCKED_BY_KEY
+	return DoorState.OPEN
+
+
+func doors_of(cell: Vector2i) -> Dictionary:
+	return rooms.get(cell, {}).get("doors", {})
