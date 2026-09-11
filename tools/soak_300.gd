@@ -4,6 +4,7 @@ extends Node
 ## Run tools/soak_300.tscn; output is tools/diagnostics/soak_*.json / soak.csv.
 var game: Node3D
 var arena: Arena
+var runner: FloorRunner
 var started_ms: int
 var next_sample: int = 30
 var simulated_seconds := 0.0
@@ -18,6 +19,7 @@ func _ready() -> void:
 	game = load("res://scenes/Game.tscn").instantiate()
 	add_child(game)
 	arena = game.get("arena")
+	runner = game.get("floor_runner")
 	var controller: Node = arena.gladiator.get_node("PlayerInput")
 	controller.process_mode = Node.PROCESS_MODE_DISABLED
 	arena.gladiator.human_movement = false
@@ -62,10 +64,10 @@ func _physics_process(delta: float) -> void:
 	_drive(g)
 	# Бой кончился - идём к открытой двери текущей комнаты. Старого выхода
 	# (arena.exit_open/exit_position) больше нет: комнаты и двери теперь у
-	# GameScreen, и он отдаёт наружу ближайшую открытую дверь.
+	# FloorRunner, и он отдаёт наружу ближайшую открытую дверь.
 	if not arena.get_alive_zombies().is_empty():
 		return
-	var room: DungeonRoom = game.current_room()
+	var room := runner.current_room()
 	var side := _door_to_walk(room, g.global_position)
 	if room == null or side < 0:
 		return
@@ -84,9 +86,9 @@ func _physics_process(delta: float) -> void:
 func _door_to_walk(room: DungeonRoom, from: Vector3) -> int:
 	if room == null:
 		return -1
-	var nearest: int = game.nearest_open_door(from)
-	var run: RunState = game.get("_run")
-	var fl: DungeonFloor = game.get("_floor")
+	var nearest := runner.nearest_open_door(from)
+	var run := runner.run_state()
+	var fl := runner.dungeon()
 	if run == null or fl == null:
 		return nearest
 	var best := -1
@@ -126,7 +128,7 @@ func _drive(g: Gladiator) -> void:
 	g.intent_block = best < 2.6 and g.sword_cd > 0.25
 
 func _built_rooms() -> int:
-	var fl: Node = game.get("_floor")
+	var fl := runner.dungeon()
 	return fl.get_child_count() if fl != null else 0
 
 func _census(node: Node, classes: Dictionary, paths: Array[String]) -> void:
@@ -154,8 +156,8 @@ func _sample(second: int) -> void:
 	var classes: Dictionary = {}
 	var paths: Array[String] = []
 	_census(game, classes, paths)
-	# Комнаты этажа живут в DungeonFloor у GameScreen, а не внутри Arena.
-	var dungeon: Node = game.get("_floor")
+	# Комнаты этажа живут в DungeonFloor у FloorRunner, а не внутри Arena.
+	var dungeon := runner.dungeon()
 	if dungeon != null:
 		var room_paths: Array[String] = []
 		var room_classes: Dictionary = {}
@@ -170,8 +172,8 @@ func _sample(second: int) -> void:
 	csv.close()
 	row["classes"] = classes
 	row["paths"] = paths
-	var fl: DungeonFloor = game.get("_floor")
-	var run: RunState = game.get("_run")
+	var fl := runner.dungeon()
+	var run := runner.run_state()
 	row["room_config"] = {
 		"floor": run.floor_number if run != null else 0,
 		"cell": str(fl.current_cell) if fl != null else "",

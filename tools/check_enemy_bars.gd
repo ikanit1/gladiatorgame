@@ -11,9 +11,10 @@ func _ready() -> void:
 
 	# Стартовая комната этажа по дизайну пустая, бой идёт только в боевой
 	# комнате. Входим в ближайшую боевую тем же путём, что и переход в дверь
-	# (_enter_cell): полосе здоровья всё равно, как игрок попал в комнату, а
-	# ждать, пока кто-то дойдёт до двери, этой проверке незачем.
-	var plan: FloorPlan = game.get("_plan")
+	# (FloorRunner.enter_cell): полосе здоровья всё равно, как игрок попал в
+	# комнату, а ждать, пока кто-то дойдёт до двери, этой проверке незачем.
+	var runner: FloorRunner = game.get("floor_runner")
+	var plan := runner.plan()
 	if plan == null:
 		print("ПРОВАЛ: этаж не построен")
 		get_tree().quit(1)
@@ -37,7 +38,7 @@ func _ready() -> void:
 			target = cell
 			entry_side = int(doors.keys()[0])
 			break
-	game.call("_enter_cell", target, entry_side)
+	runner.enter_cell(target, entry_side)
 	for _i in range(6):
 		await get_tree().process_frame
 

@@ -4,8 +4,10 @@ extends Node
 ##
 ## Поднимает НАСТОЯЩИЙ res://scenes/Game.tscn с фиксированным сидом забега и
 ## проходит этаж так, как его проходит игрок: подводит бойца к проёму и крутит
-## кадры физики, пока GameScreen сам не переведёт его в соседнюю комнату.
-## Прямой вызов _enter_cell остаётся только для пустого набора врагов - там
+## кадры физики, пока FloorRunner сам не переведёт его в соседнюю комнату.
+## Навигация этажа читается через публичное API FloorRunner (game.floor_runner),
+## без рефлексии в приватное.
+## Прямой вызов enter_cell остаётся только для пустого набора врагов - там
 ## нужен именно бой без единого заспавненного зомби, а дойти до такой комнаты
 ## пешком проверке незачем.
 ##
@@ -23,7 +25,7 @@ const RUN_SEED := 14
 ## меньше секунды, запас на разгон и на заминку от удара.
 const WALK_FRAMES := 300
 const MIN_SPAWN_DISTANCE := 6.0
-## GameScreen.DOOR_REACH - дублируем числом, а не читаем константу: константу
+## FloorRunner.DOOR_REACH - дублируем числом, а не читаем константу: константу
 ## проверяемого кода проверка обязана подтверждать, а не брать на веру.
 const DOOR_REACH := 1.6
 ## Запас от точки бойца до края пола, при котором капсула (радиус 0.4) не
@@ -36,6 +38,7 @@ const FACING_MIN_DOT := 0.7
 var r := TestReport.new("GameFloor")
 var game: Node3D
 var arena: Arena
+var runner: FloorRunner
 var _cam: Camera3D
 var _walk := Vector3.ZERO
 ## Куда смотрит игрок во время ходьбы; ноль - туда же, куда идёт.
@@ -61,8 +64,9 @@ func _ready() -> void:
 	game.set("run_seed", RUN_SEED)
 	add_child(game)
 	arena = game.get("arena")
+	runner = game.get("floor_runner")
 	_cam = game.get_node("CameraRig/Camera3D") as Camera3D
-	game.connect("room_entered", _on_room_entered)
+	runner.room_entered.connect(_on_room_entered)
 	arena.encounter_cleared.connect(func() -> void: _cleared_signals[0] += 1)
 
 	# Игрока ведёт проверка, а не клавиатура. В headless курсор не захвачен, и
@@ -90,21 +94,27 @@ func _physics_process(_delta: float) -> void:
 
 func _run_checks() -> void:
 	var waited := 0
-	while game.get("_floor") == null and waited < 30:
+	while runner.dungeon() == null and waited < 30:
 		await get_tree().process_frame
 		waited += 1
 	await _frames(3)
 
-	var run: RunState = game.get("_run")
-	var fl: DungeonFloor = game.get("_floor")
-	var plan: FloorPlan = game.get("_plan")
+	var run := runner.run_state()
+	var fl := runner.dungeon()
+	var plan := runner.plan()
 	r.check(run != null, "старт: RunState создан")
-	r.check(fl != null and plan != null, "старт: отложенный _start_floor построил этаж")
+	r.check(fl != null and plan != null, "старт: отложенный start_floor построил этаж")
 	if run == null or fl == null or plan == null:
 		r.finish(get_tree())
 		return
 
 	_check_startup(run, fl, plan)
+	# Подсказку двери FloorRunner считает в tick(), то есть в кадре _process
+	# GameScreen. После тяжёлой постройки этажа три кадра физики выше могли
+	# пройти одной итерацией догона, раньше первого _process, - ждём два.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	r.ge(runner.door_hint_distance(), 0.0, "API: у открытой двери старта есть подсказка")
 	var types := {}
 	for c in plan.rooms.keys():
 		var tn: String = FloorPlan.RoomType.keys()[int(plan.spec(c)["type"])]
@@ -246,6 +256,18 @@ func _check_startup(run: RunState, fl: DungeonFloor, plan: FloorPlan) -> void:
 
 	_check_doors_expected(false, "старт")
 	_check_door_sync("старт")
+
+	# Публичное API FloorRunner согласовано с этажом, который он построил
+	r.eq(runner.current_cell(), fl.current_cell, "API: current_cell() - клетка этажа")
+	r.check(runner.current_room() == fl.current_room(), "API: current_room() - комната этажа")
+	var near := runner.nearest_open_door(arena.gladiator.global_position)
+	r.check(near in fl.current_room().open_sides(), "API: nearest_open_door() - открытая дверь")
+	# Расширение для 13b: состояние клетки переживает повторные обращения
+	var st := runner.cell_state(FloorPlan.START_CELL)
+	st["probe"] = 1
+	r.eq(runner.cell_state(FloorPlan.START_CELL).get("probe", 0), 1,
+		"API: cell_state() отдаёт тот же словарь клетки")
+	st.erase("probe")
 
 
 ## Бой в только что открытой комнате: число врагов, дистанция спавна,
@@ -398,7 +420,7 @@ func _check_empty_encounter(run: RunState, fl: DungeonFloor, plan: FloorPlan) ->
 	arena._pool = empty
 	var signals_before: int = _cleared_signals[0]
 	var cleared_before := run.cleared.size()
-	game.call("_enter_cell", cell, side)
+	runner.enter_cell(cell, side)
 	r.eq(arena.get_alive_count(), 0, "пустой набор: никто не заспавнился")
 	await _frames(5)
 	r.eq(_cleared_signals[0] - signals_before, 1, "пустой набор: encounter_cleared всё равно пришёл")
@@ -430,7 +452,7 @@ func _check_entry_spots_all_shapes() -> void:
 		room.setup(cfg, Vector3(-400.0, 0.0, -400.0), all_doors, false)
 		for side in [-1, 0, 1, 2, 3]:
 			var label := "точки входа: %s, сторона %d" % [shape, side]
-			var spots: Array = game.call("_entry_spots", room, side)
+			var spots: Array = FloorRunner.entry_spots(room, side)
 			r.eq(spots.size(), 2, label + ": две точки")
 			if spots.size() != 2:
 				continue
@@ -465,7 +487,6 @@ func _check_no_quick_bounce() -> void:
 # ------------------------------------------------------------------
 
 func _on_room_entered(cell: Vector2i, from_side: int) -> void:
-	var fl: DungeonFloor = game.get("_floor")
 	var zs: Array = []
 	for z in arena.get_alive_zombies():
 		zs.append(z.global_position)
@@ -474,7 +495,7 @@ func _on_room_entered(cell: Vector2i, from_side: int) -> void:
 		"cell": cell,
 		"from": from_side,
 		"frame": Engine.get_process_frames(),
-		"room": fl.current_room(),
+		"room": runner.current_room(),
 		"player": arena.gladiator.global_position,
 		"ally": ally.global_position if ally != null else Vector3.INF,
 		"player_fwd": _flat_forward(arena.gladiator),
@@ -482,7 +503,7 @@ func _on_room_entered(cell: Vector2i, from_side: int) -> void:
 		"player_health": arena.gladiator.health,
 		"ally_downed": ally != null and ally.is_downed(),
 		"zombies": zs,
-		"entry": game.get("_entry_point"),
+		"entry": runner.entry_point(),
 	})
 	if _stop_on_entry:
 		_face = Vector3.ZERO
@@ -569,8 +590,8 @@ func _expected_state(planned: int, fight: bool) -> int:
 
 
 func _check_doors_expected(fight: bool, label: String) -> void:
-	var fl: DungeonFloor = game.get("_floor")
-	var plan: FloorPlan = game.get("_plan")
+	var fl := runner.dungeon()
+	var plan := runner.plan()
 	var room := fl.current_room()
 	var doors := plan.doors_of(fl.current_cell)
 	for side in doors.keys():
@@ -581,8 +602,8 @@ func _check_doors_expected(fight: bool, label: String) -> void:
 ## Общая дверь согласована с обеих сторон: у соседней комнаты своя коллизия-
 ## блокиратор на той же стене, и её устаревшее состояние заперло бы проход.
 func _check_door_sync(label: String) -> void:
-	var fl: DungeonFloor = game.get("_floor")
-	var plan: FloorPlan = game.get("_plan")
+	var fl := runner.dungeon()
+	var plan := runner.plan()
 	var cell := fl.current_cell
 	var room := fl.current_room()
 	for side in plan.doors_of(cell).keys():
@@ -604,8 +625,7 @@ func _check_door_sync(label: String) -> void:
 
 
 func _current_room() -> DungeonRoom:
-	var fl: DungeonFloor = game.get("_floor")
-	return fl.current_room()
+	return runner.current_room()
 
 
 func _teleport_player(at: Vector3, room: DungeonRoom) -> void:
@@ -622,9 +642,8 @@ func _stop() -> void:
 ## Если переход не случился, сценарий не должен сыпаться каскадом ложных
 ## провалов: возвращаем бойцов в стартовую клетку напрямую.
 func _recover_to_start() -> void:
-	var fl: DungeonFloor = game.get("_floor")
-	if fl.current_cell != FloorPlan.START_CELL:
-		game.call("_enter_cell", FloorPlan.START_CELL, -1)
+	if runner.current_cell() != FloorPlan.START_CELL:
+		runner.enter_cell(FloorPlan.START_CELL, -1)
 
 
 func _heal_team() -> void:
