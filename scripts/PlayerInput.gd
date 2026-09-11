@@ -6,6 +6,21 @@ extends Node
 ## Насколько может сместиться ввод, чтобы считаться «теми же клавишами» после
 ## склейки камеры. Клавиатура дискретна; запас - на аналоговый стик.
 const HOLD_STICK_TOLERANCE := 0.2
+## Насколько игрок может довернуть камеру мышью, пока удержание кадра движения
+## ещё действует, градусы. Дальше считаем, что он осознанно повернулся, и бег
+## снова идёт от камеры.
+##
+## 20, а не больше и не меньше. Меньше половины шага клавиатуры (направления
+## WASD идут через 45°): при большем расхождении бег уходил бы от взгляда
+## дальше, чем на полшага клавиши, - это уже читается как «управление не
+## слушается». И заметно больше дрожи руки на мыши (единицы градусов): иначе
+## случайное касание снимало бы удержание, и игрок с зажатой S шёл бы от
+## новой камеры обратно в дверь, из которой вышел.
+##
+## Таймаут и снятие по расстоянию от двери здесь нарочно не используются: оба
+## снимают удержание, пока клавиша по-прежнему зажата, - и с зажатой S игрок
+## после снятия пошёл бы к камере, то есть обратно в проём.
+const HOLD_RELEASE_YAW_DEG := 20.0
 
 @onready var _g: Gladiator = get_parent() as Gladiator
 var _queued_attack: int = -1
@@ -14,6 +29,11 @@ var _buffer_left: float = 0.0
 var _holding := false
 var _held_yaw: float = 0.0
 var _held_stick := Vector2.ZERO
+## Угол камеры, от которого меряется доворот мышью (см. steer). Берётся в
+## первом кадре удержания, то есть уже ПОСЛЕ склейки: сама склейка - это
+## 90-180°, и мерить от угла до неё значило бы снять удержание сразу.
+var _hold_view_yaw: float = 0.0
+var _hold_view_pending := false
 
 func _ready() -> void:
 	process_physics_priority = -10
@@ -54,26 +74,11 @@ func _physics_process(delta: float) -> void:
 		clear_input()
 		return
 	_g.human_movement = true
-	var camera_yaw := _camera_yaw()
 	var camera := get_viewport().get_camera_3d()
 	_g.intent_aim_direction = -camera.global_basis.z if camera != null else _g.forward()
-	var stick := Input.get_vector("g_left", "g_right", "g_forward", "g_back")
-	var move_yaw := camera_yaw
-	if _holding:
-		if stick.distance_to(_held_stick) <= HOLD_STICK_TOLERANCE:
-			move_yaw = _held_yaw
-		else:
-			_holding = false
-	_g.intent_move_world = Vector3(stick.x, 0.0, stick.y).rotated(Vector3.UP, move_yaw)
 	_g.intent_block = Input.is_action_pressed("g_block")
 	_g.intent_revive = Input.is_action_pressed("g_revive")
-	var aim := _g.intent_block or _queued_attack >= 0 or _g.action_lock > 0.0
-	if aim:
-		_g.intent_facing_yaw = camera_yaw
-	elif stick.length_squared() > 0.001:
-		_g.intent_facing_yaw = atan2(-_g.intent_move_world.x, -_g.intent_move_world.z)
-	else:
-		_g.intent_facing_yaw = _g.global_rotation.y
+	steer(Input.get_vector("g_left", "g_right", "g_forward", "g_back"), _camera_yaw())
 	_g.intent_move = 0.0
 	_g.intent_turn = 0.0
 	_g.intent_sword = _queued_attack == Gladiator.AttackType.SWORD
@@ -90,6 +95,11 @@ func _physics_process(delta: float) -> void:
 ## между комнатами, пока клавиша зажата. Поэтому, пока ввод не меняется,
 ## движение идёт в прежнем кадре; отпустил или сменил клавиши - кадр снова
 ## камерный. Так делают игры со сменой ракурса.
+##
+## Удержание снимается двумя способами: сменой клавиш и доворотом камеры
+## мышью больше HOLD_RELEASE_YAW_DEG. Без второго игрок, державший W и
+## крутивший мышью, видел, как камера поворачивает, а бег и тело идут в
+## старую сторону, пока он не отпустит клавишу.
 func hold_move_frame() -> void:
 	if _g == null:
 		return
@@ -97,12 +107,50 @@ func hold_move_frame() -> void:
 	_holding = stick.length_squared() > 0.001
 	_held_stick = stick
 	_held_yaw = _camera_yaw()
+	_hold_view_pending = _holding
+
+
+## Один кадр управления движением и поворотом от стика и угла камеры.
+##
+## Вынесено из _physics_process ради проверки (tools/check_game_floor.gd): в
+## headless курсор не захватить, и _physics_process там каждый кадр сбрасывал
+## бы ввод. Проверка зовёт steer напрямую с настоящими клавишами и настоящим
+## углом камеры - и проверяет именно ту логику удержания, которой играет игрок.
+## intent_block должен быть выставлен до вызова: от него зависит поворот.
+func steer(stick: Vector2, camera_yaw: float) -> void:
+	if _g == null:
+		return
+	var move_yaw := camera_yaw
+	if _holding:
+		if _hold_view_pending:
+			_hold_view_yaw = camera_yaw
+			_hold_view_pending = false
+		var turned := absf(angle_difference(_hold_view_yaw, camera_yaw))
+		if stick.distance_to(_held_stick) <= HOLD_STICK_TOLERANCE \
+				and turned <= deg_to_rad(HOLD_RELEASE_YAW_DEG):
+			move_yaw = _held_yaw
+		else:
+			_holding = false
+	_g.intent_move_world = Vector3(stick.x, 0.0, stick.y).rotated(Vector3.UP, move_yaw)
+	var aim := _g.intent_block or _queued_attack >= 0 or _g.action_lock > 0.0
+	if aim:
+		_g.intent_facing_yaw = camera_yaw
+	elif stick.length_squared() > 0.001:
+		_g.intent_facing_yaw = atan2(-_g.intent_move_world.x, -_g.intent_move_world.z)
+	else:
+		_g.intent_facing_yaw = _g.global_rotation.y
+
+
+## Держится ли сейчас кадр движения, снятый при склейке камеры.
+func is_holding_move_frame() -> bool:
+	return _holding
 
 
 func clear_input() -> void:
 	_queued_attack = -1
 	_buffer_left = 0.0
 	_holding = false
+	_hold_view_pending = false
 	if not is_instance_valid(_g):
 		return
 	_g.human_movement = false

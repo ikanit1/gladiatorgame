@@ -50,6 +50,16 @@ var _entries: Array[Dictionary] = []
 ## Массив, а не int: лямбда захватывает локальные по значению (см.
 ## check_arena_encounter.gd), массив же - по ссылке.
 var _cleared_signals := [0]
+## Ручное управление через настоящий PlayerInput: проверка жмёт действия
+## (Input.action_press) и зовёт PlayerInput.steer с углом камеры - так же, как
+## его _physics_process, который в headless не работает (курсор не захватить).
+var _rig: Node
+var _controller: Node
+var _drive_input := false
+## Дрожание камеры мышью, градусы амплитуды; 0 - без дрожания.
+var _jitter_deg := 0.0
+var _jitter_base := 0.0
+var _jitter_t := 0
 
 
 func _ready() -> void:
@@ -66,6 +76,8 @@ func _ready() -> void:
 	arena = game.get("arena")
 	runner = game.get("floor_runner")
 	_cam = game.get_node("CameraRig/Camera3D") as Camera3D
+	_rig = game.get_node("CameraRig")
+	_controller = arena.gladiator.get_node_or_null("PlayerInput")
 	runner.room_entered.connect(_on_room_entered)
 	arena.encounter_cleared.connect(func() -> void: _cleared_signals[0] += 1)
 
@@ -79,7 +91,21 @@ func _ready() -> void:
 
 
 func _physics_process(_delta: float) -> void:
-	if arena == null or _walk == Vector3.ZERO:
+	if arena == null:
+		return
+	if _drive_input and _controller != null:
+		var gl := arena.gladiator
+		gl.human_movement = true
+		gl.intent_block = false
+		if _jitter_deg > 0.0:
+			# Первый кадр дрожания - ровно угол склейки: от него PlayerInput
+			# меряет доворот, и дальше отклонение не превышает амплитуды.
+			_rig.set("_yaw", _jitter_base + deg_to_rad(_jitter_deg) * sin(float(_jitter_t) * 0.9))
+			_jitter_t += 1
+		_controller.call("steer",
+			Input.get_vector("g_left", "g_right", "g_forward", "g_back"), _rig.call("get_yaw"))
+		return
+	if _walk == Vector3.ZERO:
 		return
 	var g := arena.gladiator
 	g.human_movement = true
@@ -212,6 +238,9 @@ func _run_checks() -> void:
 			_check_door_sync("повторный вход")
 
 	await _check_backward_entry(fl)
+	await _check_hold_released_by_turn()
+	await _check_hold_backward(0.0, "S спиной без мыши")
+	await _check_hold_backward(12.0, "S спиной с дрожанием камеры 12°")
 	await _check_empty_encounter(run, fl, plan)
 	_check_no_quick_bounce()
 	await _check_entry_spots_all_shapes()
@@ -391,6 +420,144 @@ func _check_backward_entry(fl: DungeonFloor) -> void:
 		"вход спиной: через 10 кадров тело игрока смотрит в комнату")
 	r.ge(_camera_forward().dot(inward), FACING_MIN_DOT,
 		"вход спиной: через 10 кадров камера смотрит в комнату")
+
+
+## Удержание кадра движения (PlayerInput.hold_move_frame) снимается доворотом
+## камеры: игрок входит с зажатой W и сразу поворачивает мышью на 60°. Бег и
+## намерение поворота обязаны пойти за камерой, пока W всё ещё зажата. Раньше
+## удержание снималось только сменой клавиш, и тело бежало в старую сторону.
+func _check_hold_released_by_turn() -> void:
+	var label := "(а) W и доворот камеры"
+	var side := _calm_side()
+	r.check(side >= 0 and _controller != null, label + ": есть спокойная дверь и PlayerInput")
+	if side < 0 or _controller == null:
+		return
+	var before := _entries.size()
+	var e := await _input_entry(side, "g_forward", false, label)
+	if e.is_empty():
+		return
+	_check_entry(e, e["cell"], int(e["from"]), label)
+	await _frames(3)
+	r.check(bool(_controller.call("is_holding_move_frame")),
+		label + ": после входа с зажатой W удержание включено")
+	var g := arena.gladiator
+	var turned := wrapf(float(_rig.call("get_yaw")) + deg_to_rad(60.0), -PI, PI)
+	_rig.set("_yaw", turned)
+	var cam_fwd := Vector3(0.0, 0.0, -1.0).rotated(Vector3.UP, turned)
+	await _frames(4)
+	r.check(not bool(_controller.call("is_holding_move_frame")),
+		label + ": доворот на 60° снял удержание")
+	r.ge(g.intent_move_world.normalized().dot(cam_fwd), 0.99,
+		label + ": намерение движения идёт от камеры")
+	r.in_range(absf(angle_difference(g.intent_facing_yaw, turned)), 0.0, deg_to_rad(2.0),
+		label + ": intent_facing_yaw следует камере, рад")
+	await _frames(20)
+	var vel := Vector3(g.velocity.x, 0.0, g.velocity.z)
+	r.ge(vel.normalized().dot(cam_fwd), 0.95, label + ": скорость бойца идёт за камерой")
+	r.ge(_flat_forward(g).dot(cam_fwd), 0.9, label + ": тело развернулось за камерой")
+	r.eq(_entries.size() - before, 1, label + ": переход ровно один")
+	_end_input()
+	await _frames(5)
+
+
+## Вход спиной с зажатой S через настоящий PlayerInput. Без мыши (jitter 0) -
+## ровно один переход и игрок идёт вглубь новой комнаты; с дрожанием камеры
+## ниже порога снятия - то же самое: дрожь руки на мыши не должна снимать
+## удержание и отправлять игрока обратно в дверь.
+func _check_hold_backward(jitter_deg: float, label: String) -> void:
+	var side := _calm_side()
+	r.check(side >= 0 and _controller != null, label + ": есть спокойная дверь и PlayerInput")
+	if side < 0 or _controller == null:
+		return
+	var before := _entries.size()
+	var e := await _input_entry(side, "g_back", true, label)
+	if e.is_empty():
+		return
+	var from_side := int(e["from"])
+	_check_entry(e, e["cell"], from_side, label)
+	var room := _current_room()
+	var door := room.door_position(from_side)
+	var g := arena.gladiator
+	var d0 := _flat_distance(g.global_position, door)
+	if jitter_deg > 0.0:
+		_jitter_base = float(_rig.call("get_yaw"))
+		_jitter_t = 0
+		_jitter_deg = jitter_deg
+	# S зажата ещё 45 кадров: ровно здесь раньше рождался переход обратно.
+	await _frames(45)
+	r.eq(_entries.size() - before, 1, label + ": ровно один переход, без возврата")
+	r.eq(runner.current_cell(), e["cell"], label + ": игрок остался в новой комнате")
+	r.ge(_flat_distance(g.global_position, door) - d0, 1.5,
+		label + ": с зажатой S игрок уходит вглубь комнаты, м")
+	r.check(bool(_controller.call("is_holding_move_frame")), label + ": удержание не снято")
+	_end_input()
+	await _frames(5)
+
+
+## Подводит игрока к двери side текущей комнаты и жмёт действие action через
+## PlayerInput, пока FloorRunner не переведёт его. backward - спиной к двери:
+## тело и камера смотрят прочь от проёма. Действие остаётся зажатым - снимает
+## его _end_input. Возвращает запись о переходе или пустой словарь.
+func _input_entry(side: int, action: String, backward: bool, label: String) -> Dictionary:
+	var room := _current_room()
+	var dir := DungeonRoom.side_direction(side)
+	var g := arena.gladiator
+	_teleport_player(room.door_position(side) - dir * 4.0, room)
+	var look := -dir if backward else dir
+	var yaw := atan2(-look.x, -look.z)
+	g.global_rotation.y = yaw
+	g.intent_facing_yaw = yaw
+	_rig.call("snap_behind_target")
+	await _frames(2)
+	var before := _entries.size()
+	Input.action_press(action)
+	_drive_input = true
+	var n := 0
+	while n < WALK_FRAMES and _entries.size() == before:
+		await get_tree().physics_frame
+		n += 1
+	var made := _entries.size() - before
+	r.eq(made, 1, label + ": переход через дверь случился")
+	if made < 1:
+		_end_input()
+		_recover_to_start()
+		await _frames(5)
+		return {}
+	return _entries[before]
+
+
+## Отпускает клавиши и прогоняет кадр управления с отпущенными: так снимает
+## удержание сам игрок. Без этого кадра удержание, взятое в прошлом сценарии,
+## пережило бы его и увело бы следующий сценарий в старом кадре движения.
+func _end_input() -> void:
+	for a in ["g_forward", "g_back", "g_left", "g_right"]:
+		Input.action_release(a)
+	_jitter_deg = 0.0
+	if _controller != null:
+		_controller.call("steer", Vector2.ZERO, _rig.call("get_yaw"))
+		r.check(not bool(_controller.call("is_holding_move_frame")),
+			"отпущенные клавиши снимают удержание кадра движения")
+	_drive_input = false
+	_stop()
+
+
+## Открытая дверь текущей комнаты в комнату без боя (не боевая или уже
+## зачищенная) или -1: проверкам управления бой только мешает.
+func _calm_side() -> int:
+	var room := _current_room()
+	var plan := runner.plan()
+	var run := runner.run_state()
+	var sides: Array = room.open_sides()
+	sides.sort()
+	for s in sides:
+		var t: Vector2i = runner.current_cell() + FloorPlan.SIDE_OFFSETS[s]
+		if not plan.has_room(t):
+			continue
+		var ty := int(plan.spec(t)["type"])
+		if run.is_cleared(t) or ty in [FloorPlan.RoomType.START, FloorPlan.RoomType.TREASURE,
+				FloorPlan.RoomType.SECRET, FloorPlan.RoomType.SHOP]:
+			return s
+	return -1
 
 
 ## Дополнение 1: набор, из которого не заспавнился никто (пул исчерпан), не
