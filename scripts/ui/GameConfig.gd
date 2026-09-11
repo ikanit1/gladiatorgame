@@ -9,6 +9,18 @@ extends Node
 const PATH := "user://settings.cfg"
 const MODELS_DIR := "res://models"
 
+## Слабый старт забега. Нужен, чтобы редкий сундук ощущался наградой: при
+## нынешних ста единицах здоровья и кулдауне 0.7 игрок и без апгрейдов
+## проходит первые комнаты не напрягаясь.
+##
+## Урон меча не трогаем намеренно: «два удара на зомби» - дизайн-решение с
+## комментарием в Zombie.gd, иначе пинок и блок становятся ненужными. Зомби
+## станет трёхударным сам, за счёт роста здоровья в ThreatCurve.
+const START_MAX_HEALTH := 70.0
+const START_BLOCK_STAMINA := 70.0
+const START_SWORD_COOLDOWN := 0.85
+const START_KICK_COOLDOWN := 2.2
+
 enum Difficulty { EASY, NORMAL, HARD }
 
 var coop: bool = true
@@ -16,6 +28,10 @@ var ally_policy: String = "res://models/gladiator_team_v5.policy"
 var difficulty: int = Difficulty.NORMAL
 var master_volume: float = 0.8
 var show_ai_debug: bool = false
+
+## Множитель глубины под выбранную сложность. Применяется к threat, а не к
+## полям арены: так одна кривая обслуживает все три режима.
+var difficulty_threat_mult: float = 1.0
 
 # Последний бой - для экрана результатов
 var last_result: Dictionary = {}
@@ -48,26 +64,34 @@ func apply_to_arena(arena: Arena) -> void:
 
 	match difficulty:
 		Difficulty.EASY:
-			arena.first_wave_size = 2
-			arena.wave_growth = 1
-			arena.max_alive = 5
-			arena.wave_delay = 3.5
-			arena.potion_interval = 6.0
 			arena.max_potions = 3
+			difficulty_threat_mult = 0.75
 		Difficulty.HARD:
-			arena.first_wave_size = 4
-			arena.wave_growth = 2
-			arena.max_alive = 12
-			arena.wave_delay = 1.5
-			arena.potion_interval = 11.0
 			arena.max_potions = 2
+			difficulty_threat_mult = 1.3
 		_:
-			arena.first_wave_size = 3
-			arena.wave_growth = 1
-			arena.max_alive = 8
-			arena.wave_delay = 2.5
-			arena.potion_interval = 8.0
 			arena.max_potions = 3
+			difficulty_threat_mult = 1.0
+
+
+## Статический намеренно: проверка запускается через --script, где автозагрузок
+## не существует, и зовёт метод у загруженного ресурса скрипта. Из игры
+## по-прежнему доступен как GameConfig.apply_weak_start().
+##
+## Здоровье и запас щита выставляются в новый максимум, а не через minf, как
+## было в плане: у бойца до _ready() health ещё равен нулю (Gladiator ставит
+## его в _ready), и minf оставил бы ноль. Звать один раз, на старте забега,
+## у свежих бойцов - на раненом бойце вызов его бы подлечил.
+static func apply_weak_start(fighters: Array) -> void:
+	for f in fighters:
+		if f == null:
+			continue
+		f.max_health = START_MAX_HEALTH
+		f.health = START_MAX_HEALTH
+		f.block_stamina_max = START_BLOCK_STAMINA
+		f.block_stamina = START_BLOCK_STAMINA
+		f.sword_cooldown = START_SWORD_COOLDOWN
+		f.kick_cooldown = START_KICK_COOLDOWN
 
 
 ## Сложность применяется ПОСЛЕ генерации комнаты: планировку задаёт
