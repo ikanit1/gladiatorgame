@@ -7,8 +7,8 @@ func _ready() -> void:
 	for show_visuals in [true, false]:
 		var room := DungeonRoom.new()
 		add_child(room)
-		room.setup(RoomGenerator.generate(1, RandomNumberGenerator.new()),
-			Vector3.ZERO, DungeonRoom.DOOR_NONE, 0, show_visuals)
+		room.setup(RoomGenerator.geometry(RandomNumberGenerator.new()),
+			Vector3.ZERO, {}, show_visuals)
 		var body := room.get_node_or_null("CeilingCollision")
 		var vis := room.get_node_or_null("CeilingVisual")
 		var lamps := 0

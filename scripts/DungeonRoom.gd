@@ -16,26 +16,26 @@ const LAMP_STEP := 4
 const LAMP_ENERGY := 3.2
 const LAMP_RANGE := 12.0
 const DOOR_WIDTH := CELL_SIZE
-const DOOR_NONE := -1
 
 var config: Dictionary = {}
-var entrance_side: int = DOOR_NONE
-var exit_side: int = 0
 var visuals_enabled: bool = true
+
+## side -> FloorPlan.DoorState. Состояние двери живёт в FloorPlan: он не
+## зависит ни от одного узла, поэтому зависимость односторонняя.
+var doors: Dictionary = {}
 
 var _cells: Dictionary = {}
 var _min_cell := Vector2i.ZERO
 var _max_cell := Vector2i.ZERO
-var _door_blocker: CollisionShape3D
-var _door_panel: MeshInstance3D
+var _blockers: Dictionary = {}   ## side -> CollisionShape3D
+var _panels: Dictionary = {}     ## side -> MeshInstance3D
 
 
-func setup(new_config: Dictionary, center: Vector3, new_entrance_side: int,
-		new_exit_side: int, show_visuals: bool) -> void:
+func setup(new_config: Dictionary, center: Vector3, new_doors: Dictionary,
+		show_visuals: bool) -> void:
 	config = new_config
 	position = center
-	entrance_side = new_entrance_side
-	exit_side = new_exit_side
+	doors = new_doors.duplicate()
 	visuals_enabled = show_visuals
 	_build()
 
@@ -105,19 +105,18 @@ func _build() -> void:
 			var neighbour := cell + _side_cell_offset(side)
 			if _cells.has(neighbour):
 				continue
-
-			var is_entrance := side == entrance_side and _is_center_door_cell(cell, side)
-			var is_exit := side == exit_side and _is_center_door_cell(cell, side)
-			if is_entrance or is_exit:
+			# Проём оставляем только в центральной клетке той стороны,
+			# где есть дверь. Остальное - стена.
+			if doors.has(side) and _is_center_door_cell(cell, side):
 				continue
-
 			_add_wall(wall_body, wall_visual, cell, side, wall_material)
 
-	# Вход всегда открыт, выход сначала закрыт волной врагов.
-	_add_door_frame(wall_visual, exit_side, wall_material, false)
-	if entrance_side != DOOR_NONE:
-		_add_door_frame(wall_visual, entrance_side, wall_material, true)
-	_create_exit_blocker(wall_body)
+	for side in doors.keys():
+		var state: int = int(doors[side])
+		_add_door_frame(wall_visual, side, wall_material,
+			state == FloorPlan.DoorState.OPEN)
+		_create_door_blocker(wall_body, side)
+		set_door_state(side, state)
 
 	# Потолок строится только при visuals_enabled: в обучении камеры нет,
 	# а сотня лишних коллизионных форм на каждой из шестнадцати арен -
@@ -276,7 +275,9 @@ func _add_wall(body: StaticBody3D, visual_root: Node3D, cell: Vector2i,
 
 func _add_door_frame(visual_root: Node3D, side: int,
 		material: StandardMaterial3D, is_entrance: bool) -> void:
-	if visual_root == null or side == DOOR_NONE:
+	# _add_door_frame теперь вызывается только для реально существующих
+	# дверей из словаря doors, поэтому проверка на «нет двери» не нужна.
+	if visual_root == null:
 		return
 	var center := _side_center(side)
 	center.y = 0.0
@@ -314,23 +315,25 @@ func _add_frame_piece(root: Node3D, pos: Vector3, size: Vector3,
 	root.add_child(mesh)
 
 
-func _create_exit_blocker(body: StaticBody3D) -> void:
-	var data := _door_transform(exit_side)
-	_door_blocker = CollisionShape3D.new()
-	_door_blocker.name = "ExitDoorBlocker"
+func _create_door_blocker(body: StaticBody3D, side: int) -> void:
+	var data := _door_transform(side)
+	var blocker := CollisionShape3D.new()
+	blocker.name = "DoorBlocker_%d" % side
 	var shape := BoxShape3D.new()
 	shape.size = data[1]
-	_door_blocker.shape = shape
-	_door_blocker.position = data[0]
-	body.add_child(_door_blocker)
+	blocker.shape = shape
+	blocker.position = data[0]
+	body.add_child(blocker)
+	_blockers[side] = blocker
 
 	if visuals_enabled:
-		_door_panel = MeshInstance3D.new()
-		_door_panel.name = "ClosedDoor"
-		_door_panel.position = data[0]
-		add_child(_door_panel)
+		var panel := MeshInstance3D.new()
+		panel.name = "ClosedDoor_%d" % side
+		panel.position = data[0]
+		add_child(panel)
 		var decor := load("res://scripts/FortressDecor.gd")
-		decor.gate(_door_panel, exit_side)
+		decor.gate(panel, side)
+		_panels[side] = panel
 
 
 func _door_transform(side: int) -> Array:
@@ -341,23 +344,44 @@ func _door_transform(side: int) -> Array:
 	return [center, size]
 
 
-func set_exit_open(open: bool) -> void:
-	if _door_blocker != null:
-		_door_blocker.set_deferred("disabled", open)
-	if _door_panel != null:
-		_door_panel.visible = not open
+func set_door_state(side: int, state: int) -> void:
+	if not doors.has(side):
+		return
+	doors[side] = state
+	var open := state == FloorPlan.DoorState.OPEN
+	var blocker: CollisionShape3D = _blockers.get(side)
+	if blocker != null:
+		# set_deferred обязателен: форму нельзя включать и выключать изнутри
+		# физического шага, в котором её может опрашивать сервер.
+		blocker.set_deferred("disabled", open)
+	var panel: MeshInstance3D = _panels.get(side)
+	if panel != null:
+		panel.visible = not open
 
 
-func get_exit_position() -> Vector3:
-	return to_global(_side_center(exit_side) + Vector3.UP * 0.15)
+func door_state(side: int) -> int:
+	return int(doors.get(side, FloorPlan.DoorState.LOCKED_BY_FIGHT))
 
 
-func get_exit_side() -> int:
-	return exit_side
+func open_sides() -> Array[int]:
+	var out: Array[int] = []
+	for side in doors.keys():
+		if int(doors[side]) == FloorPlan.DoorState.OPEN:
+			out.append(side)
+	return out
 
 
-func get_connection_center() -> Vector3:
-	return to_global(_side_center(exit_side))
+## Точка в мировых координатах по центру проёма. Используется и для подсказки
+## «дверь открыта», и для переноса бойцов в соседнюю комнату.
+func door_position(side: int) -> Vector3:
+	return to_global(_side_center(side) + Vector3.UP * 0.15)
+
+
+## Точка внутри комнаты, на шаг от двери: сюда ставим бойцов после перехода,
+## чтобы они не оказались в самом проёме и не перешли обратно тем же кадром.
+func inside_door_position(side: int) -> Vector3:
+	var inward := -DungeonRoom.side_direction(side) * CELL_SIZE
+	return to_global(_side_center(side) + inward + Vector3.UP * 0.15)
 
 
 func get_random_floor_position(rng: RandomNumberGenerator) -> Vector3:
