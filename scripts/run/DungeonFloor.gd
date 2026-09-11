@@ -17,7 +17,10 @@ var _rooms: Dictionary = {}   ## Vector2i -> DungeonRoom
 var _rng := RandomNumberGenerator.new()
 
 
-func setup(new_plan: FloorPlan, show_visuals: bool) -> void:
+## geometry_seed задаёт сид формы и оформления комнат; 0 - случайный. Нужен
+## детерминированному забегу (GameScreen.run_seed): иначе планировка этажа
+## повторялась бы, а контуры комнат каждый прогон были бы новыми.
+func setup(new_plan: FloorPlan, show_visuals: bool, geometry_seed: int = 0) -> void:
 	if plan != null:
 		# Повторный setup() уже построенного этажа оставил бы дочерние
 		# DungeonRoom висеть в дереве осиротевшими: _rooms.clear() ниже
@@ -29,7 +32,10 @@ func setup(new_plan: FloorPlan, show_visuals: bool) -> void:
 		return
 	plan = new_plan
 	visuals_enabled = show_visuals
-	_rng.randomize()
+	if geometry_seed != 0:
+		_rng.seed = geometry_seed
+	else:
+		_rng.randomize()
 	# _rooms.clear() не нужен: до этой строки setup() гарантированно ни разу
 	# не выполнялся (см. проверку выше), а словарь и так пуст при создании.
 	current_cell = Vector2i(-1, -1)

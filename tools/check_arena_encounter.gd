@@ -27,6 +27,8 @@ func run_checks() -> void:
 	await _check_spawn_encounter_places_inside_room(r)
 	await _check_encounter_cleared_once(r)
 	await _check_clear_room(r)
+	await _check_encounter_spawn_distance(r)
+	await _check_empty_encounter_clears(r)
 	await _check_training_path_still_infinite(r)
 	await _check_training_box_hidden_only_when_encounter_driven(r)
 
@@ -218,6 +220,117 @@ func _check_clear_room(r: TestReport) -> void:
 	arena.queue_free()
 	room.queue_free()
 	await physics_frame
+
+
+## Бой-за-комнату: зомби стоят не ближе 6 м (спека) от двери входа и от
+## бойцов. Раньше _pick_spawn_transform делал 8 случайных попыток и после
+## неудачи соглашался на любую точку - такая серия здесь поймалась бы. Все
+## формы комнат, все четыре стороны, набор больше максимума игры (13 - босс
+## пятого этажа: 10 врагов плюс три).
+func _check_encounter_spawn_distance(r: TestReport) -> void:
+	r.in_range(Arena.ENCOUNTER_MIN_SPAWN_DISTANCE, 6.0, 6.0,
+		"минимум спавна боя-за-комнату по спеке")
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var arena := _make_arena(true)
+	await physics_frame
+	await physics_frame
+
+	var all_doors := {
+		0: FloorPlan.DoorState.OPEN, 1: FloorPlan.DoorState.OPEN,
+		2: FloorPlan.DoorState.OPEN, 3: FloorPlan.DoorState.OPEN,
+	}
+	var worst := INF
+	var spawned := 0
+	var distinct := true
+	for shape in RoomGenerator.SHAPES:
+		var cfg := RoomGenerator.geometry(rng)
+		cfg["shape"] = shape
+		var room := DungeonRoom.new()
+		root.add_child(room)
+		room.setup(cfg, Vector3(300.0, 0.0, 300.0), all_doors, false)
+		arena.combat_room = room
+		for side in 4:
+			var door := room.door_position(side)
+			var entry := door - DungeonRoom.side_direction(side) * 3.0
+			arena.gladiator.global_position = entry
+			arena.spawn_encounter(_normal_specs(13), [door, entry])
+			var seen := {}
+			for z in arena.get_alive_zombies():
+				spawned += 1
+				var p := z.global_position
+				worst = minf(worst, minf(_flat(p, door), _flat(p, entry)))
+				var key := Vector2i(roundi(p.x * 10.0), roundi(p.z * 10.0))
+				if seen.has(key):
+					distinct = false
+				seen[key] = true
+			arena.clear_room()
+		room.queue_free()
+
+	r.eq(spawned, RoomGenerator.SHAPES.size() * 4 * 13, "бой-за-комнату: все наборы заспавнились")
+	r.ge(worst, 6.0 - 0.001, "бой-за-комнату: ближайший зомби от двери входа и бойца, м")
+	r.check(distinct, "бой-за-комнату: 13 зомби набора в разных клетках")
+
+	arena.queue_free()
+	await physics_frame
+
+
+## Дополнение 1 задачи 13a: набор, из которого не заспавнился никто (пустой
+## или пул исчерпан), всё равно заканчивается ровно одним encounter_cleared -
+## иначе ждущая его комната так и осталась бы незачищенной. Сигнал отложен до
+## конца кадра, а clear_room до этого момента его гасит.
+func _check_empty_encounter_clears(r: TestReport) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31
+	var arena := _make_arena(true)
+	await physics_frame
+	await physics_frame
+
+	var room := _make_room(rng, Vector3(-200.0, 0.0, -200.0))
+	arena.combat_room = room
+	var count := [0]
+	arena.encounter_cleared.connect(func() -> void: count[0] += 1)
+
+	arena.spawn_encounter([])
+	r.eq(count[0], 0, "пустой набор: сигнал не синхронно из spawn_encounter")
+	for i in 3:
+		await physics_frame
+	r.eq(count[0], 1, "пустой набор: encounter_cleared пришёл")
+	for i in 30:
+		await physics_frame
+	r.eq(count[0], 1, "пустой набор: сигнал не повторяется")
+
+	var saved: Array[Zombie] = arena._pool
+	var empty: Array[Zombie] = []
+	arena._pool = empty
+	arena.spawn_encounter(_five_specs())
+	r.eq(arena.get_alive_count(), 0, "исчерпанный пул: никто не заспавнился")
+	for i in 3:
+		await physics_frame
+	r.eq(count[0], 2, "исчерпанный пул: encounter_cleared пришёл")
+	arena._pool = saved
+
+	arena.spawn_encounter([])
+	arena.clear_room()
+	for i in 5:
+		await physics_frame
+	r.eq(count[0], 2, "clear_room гасит отложенный сигнал пустого набора")
+
+	arena.queue_free()
+	room.queue_free()
+	await physics_frame
+
+
+func _normal_specs(n: int) -> Array:
+	var specs: Array = []
+	for i in n:
+		specs.append({"variant": Zombie.Variant.NORMAL})
+	return specs
+
+
+func _flat(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
 ## Путь обучения: encounter_driven = false, waves_in_room = 0 - бесконечная

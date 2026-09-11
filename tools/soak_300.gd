@@ -60,14 +60,46 @@ func _physics_process(delta: float) -> void:
 		g.revive()
 	g.health = g.max_health
 	_drive(g)
-	if arena.exit_open:
-		var to_exit: Vector3 = arena.exit_position - g.global_position
-		to_exit.y = 0.0
-		if to_exit.length() > 0.2:
-			var angle := g.forward().signed_angle_to(to_exit.normalized(), Vector3.UP)
-			g.intent_turn = -clampf(angle * 3.0, -1.0, 1.0)
-			g.intent_move = 1.0
-			g.intent_block = false
+	# Бой кончился - идём к открытой двери текущей комнаты. Старого выхода
+	# (arena.exit_open/exit_position) больше нет: комнаты и двери теперь у
+	# GameScreen, и он отдаёт наружу ближайшую открытую дверь.
+	if not arena.get_alive_zombies().is_empty():
+		return
+	var room: DungeonRoom = game.current_room()
+	var side := _door_to_walk(room, g.global_position)
+	if room == null or side < 0:
+		return
+	var to_exit: Vector3 = room.door_position(side) - g.global_position
+	to_exit.y = 0.0
+	if to_exit.length() > 0.2:
+		var angle := g.forward().signed_angle_to(to_exit.normalized(), Vector3.UP)
+		g.intent_turn = -clampf(angle * 3.0, -1.0, 1.0)
+		g.intent_move = 1.0
+		g.intent_block = false
+
+
+## Ближайшая открытая дверь, но с предпочтением ещё не посещённых соседей:
+## просто ближайшая - это почти всегда дверь, через которую только что вошли,
+## и прогон ходил бы туда-обратно между двумя комнатами, не строя новых.
+func _door_to_walk(room: DungeonRoom, from: Vector3) -> int:
+	if room == null:
+		return -1
+	var nearest: int = game.nearest_open_door(from)
+	var run: RunState = game.get("_run")
+	var fl: DungeonFloor = game.get("_floor")
+	if run == null or fl == null:
+		return nearest
+	var best := -1
+	var best_d := INF
+	for side in room.open_sides():
+		var cell: Vector2i = fl.current_cell + FloorPlan.SIDE_OFFSETS[side]
+		if run.is_visited(cell):
+			continue
+		var d := from.distance_to(room.door_position(side))
+		if d < best_d:
+			best_d = d
+			best = side
+	return best if best >= 0 else nearest
 
 func _drive(g: Gladiator) -> void:
 	g.intent_move = 0.0
@@ -93,6 +125,10 @@ func _drive(g: Gladiator) -> void:
 	g.intent_sword = best < 2.1 and absf(angle) < 0.6
 	g.intent_block = best < 2.6 and g.sword_cd > 0.25
 
+func _built_rooms() -> int:
+	var fl: Node = game.get("_floor")
+	return fl.get_child_count() if fl != null else 0
+
 func _census(node: Node, classes: Dictionary, paths: Array[String]) -> void:
 	var kind := node.get_class()
 	classes[kind] = int(classes.get(kind, 0)) + 1
@@ -110,7 +146,7 @@ func _sample(second: int) -> void:
 		"resources": int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
 		"static_mib": Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0,
 		"video_mib": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
-		"rooms": arena.get("_dungeon_rooms").size(),
+		"rooms": _built_rooms(),
 		"room_nodes": 0,
 		"kills": arena.total_kills,
 		"attacks": attacks,
@@ -118,7 +154,8 @@ func _sample(second: int) -> void:
 	var classes: Dictionary = {}
 	var paths: Array[String] = []
 	_census(game, classes, paths)
-	var dungeon: Node = arena.get("_dungeon_root")
+	# Комнаты этажа живут в DungeonFloor у GameScreen, а не внутри Arena.
+	var dungeon: Node = game.get("_floor")
 	if dungeon != null:
 		var room_paths: Array[String] = []
 		var room_classes: Dictionary = {}
@@ -133,7 +170,13 @@ func _sample(second: int) -> void:
 	csv.close()
 	row["classes"] = classes
 	row["paths"] = paths
-	row["room_config"] = game.get("_room_cfg")
+	var fl: DungeonFloor = game.get("_floor")
+	var run: RunState = game.get("_run")
+	row["room_config"] = {
+		"floor": run.floor_number if run != null else 0,
+		"cell": str(fl.current_cell) if fl != null else "",
+		"cleared": run.cleared.size() if run != null else 0,
+	}
 	var json := FileAccess.open("res://tools/diagnostics/soak_%03d.json" % second, FileAccess.WRITE)
 	json.store_string(JSON.stringify(row, "\t"))
 	json.close()

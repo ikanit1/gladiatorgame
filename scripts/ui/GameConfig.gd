@@ -94,23 +94,6 @@ static func apply_weak_start(fighters: Array) -> void:
 		f.kick_cooldown = START_KICK_COOLDOWN
 
 
-## Сложность применяется ПОСЛЕ генерации комнаты: планировку задаёт
-## RoomGenerator, а темп боя - выбор игрока.
-func apply_difficulty_to_room(arena: Arena) -> void:
-	match difficulty:
-		Difficulty.EASY:
-			arena.max_alive = maxi(3, int(arena.max_alive * 0.7))
-			arena.wave_delay = 3.5
-			arena.max_potions = 3
-		Difficulty.HARD:
-			arena.max_alive = int(arena.max_alive * 1.4)
-			arena.wave_delay = 1.4
-			arena.max_potions = 2
-			arena.potion_interval += 2.0
-		_:
-			arena.wave_delay = 2.5
-
-
 ## Список политик, которые можно поставить напарнику.
 func available_policies() -> Array[String]:
 	var out: Array[String] = []

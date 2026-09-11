@@ -506,6 +506,31 @@ func get_random_floor_position(rng: RandomNumberGenerator) -> Vector3:
 	return to_global(_cell_position(cell))
 
 
+## Центры всех клеток пола в мировых координатах, в порядке постройки клеток.
+## Нужны Arena для спавна с гарантированной дистанцией: из полного списка
+## выбираются подходящие клетки, а не угадываются случайными повторами.
+func get_floor_positions() -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for cell in _cells.keys():
+		out.append(to_global(_cell_position(cell)))
+	return out
+
+
+## Стоит ли точка на полу комнаты с запасом margin во все стороны. Квадрат
+## margin вокруг точки проверяется по девяти отсчётам: у Г-образной и крестовой
+## комнаты пол не выпуклый, и одной точки мало - боец встал бы вплотную к
+## внутреннему углу, а его капсула оказалась бы в стене.
+func has_floor_at(world_pos: Vector3, margin: float = 0.0) -> bool:
+	var local := to_local(world_pos)
+	for dx in [-margin, 0.0, margin]:
+		for dz in [-margin, 0.0, margin]:
+			var cell := Vector2i(roundi((local.x + dx) / CELL_SIZE),
+				roundi((local.z + dz) / CELL_SIZE))
+			if not _cells.has(cell):
+				return false
+	return true
+
+
 static func opposite_side(side: int) -> int:
 	match side:
 		0: return 1

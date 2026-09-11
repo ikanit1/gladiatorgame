@@ -40,6 +40,11 @@ signal encounter_cleared()
 @export var spawn_radius: float = 9.0
 @export var min_spawn_distance: float = 5.0   ## не спавнить зомби вплотную к игроку
 
+## Минимум спеки для боя-за-комнату: враги стоят не ближе 6 м от двери входа
+## и от бойцов. Действует только в spawn_encounter; путь обучения со своим
+## min_spawn_distance не трогается.
+const ENCOUNTER_MIN_SPAWN_DISTANCE := 6.0
+
 @export_group("Союзник (кооператив)")
 ## Второй гладиатор под управлением обученной политики, играющий на стороне
 ## человека. Наблюдения агента при этом НЕ меняются: он видит зомби, стены
@@ -112,6 +117,9 @@ var _last_reset_frame: int = -1
 var revive_progress: float = 0.0     ## 0..1, для полосы в HUD
 var revive_target: Gladiator = null
 var _wave_live: bool = false
+## Номер текущего набора spawn_encounter. Отложенный encounter_cleared пустого
+## набора сверяется с ним и молчит, если комнату за это время сменили.
+var _encounter_serial: int = 0
 
 ## Комната, в которой идёт текущий бой. Ставится снаружи (DungeonFloor).
 ## Нужна только для выбора точек спавна: Arena про этажи ничего не знает.
@@ -188,7 +196,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if human_control and event.is_action_pressed("g_reset"):
+	# В игре (encounter_driven) сброс арены не просто бесполезен, а опасен: он
+	# ставит бойцов на стартовую точку старой тестовой коробки, а её коллизии в
+	# этом режиме выключены - игрок провалился бы под этаж. Обучение сюда не
+	# попадает вовсе: там human_control = false.
+	if human_control and not encounter_driven and event.is_action_pressed("g_reset"):
 		reset_arena()
 
 
@@ -600,16 +612,31 @@ func get_active_potions() -> Array[Potion]:
 ##   variant: int (Zombie.Variant)
 ##   health_scale, speed_scale, damage_scale, cooldown_scale: float
 ##
-## Позиции арена выбирает сама через _pick_spawn_transform: она знает про
-## комнату и про минимальную дистанцию до бойцов, а вызывающий - нет.
-func spawn_encounter(specs: Array) -> void:
+## keep_away - точки (Vector3), ближе ENCOUNTER_MIN_SPAWN_DISTANCE к которым
+## зомби не ставятся: дверь входа и место, где встали бойцы. Сами бойцы
+## добавляются к этим точкам всегда.
+##
+## Позиции арена выбирает сама: она знает про комнату и про дистанцию до
+## бойцов, а вызывающий - нет.
+##
+## Каждый вызов заканчивается ровно одним encounter_cleared - в том числе
+## когда не заспавнился никто (пустой набор или исчерпанный пул). Иначе
+## сигнал не пришёл бы никогда: _physics_process испускает его только при
+## _wave_live, а у пустого набора _wave_live ложен с самого начала - и
+## комната, которая ждёт этого сигнала, так и осталась бы незачищенной.
+func spawn_encounter(specs: Array, keep_away: Array = []) -> void:
 	if not encounter_driven:
 		push_warning("Arena.spawn_encounter вызван без encounter_driven")
-	for spec in specs:
+	_encounter_serial += 1
+	var spots := _encounter_spawn_positions(specs.size(), keep_away)
+	for i in specs.size():
+		var spec = specs[i]
 		var z := _get_free_zombie()
 		if z == null:
 			break
-		var spawn := _pick_spawn_transform()
+		# Без комнаты (spots пуст) - прежний выбор точки, как было до этажей.
+		var spawn := _spawn_transform_at(spots[i]) if i < spots.size() \
+			else _pick_spawn_transform()
 		var target := closest_fighter_to(spawn.origin)
 		z.set_variant(int(spec.get("variant", Zombie.Variant.NORMAL)))
 		z.set_threat_scaling(
@@ -623,6 +650,84 @@ func spawn_encounter(specs: Array) -> void:
 	_wave_live = _alive_count > 0
 	wave_index += 1
 	wave_started.emit(wave_index, specs.size())
+	if not _wave_live:
+		_emit_empty_encounter_cleared.call_deferred(_encounter_serial)
+
+
+## Отложенно, а не прямо из spawn_encounter: вызывающий (GameScreen) в этот
+## момент ещё не закончил вход в комнату, и сигнал посреди _enter_cell отметил
+## бы зачистку раньше, чем комната расставлена. serial гасит устаревший вызов,
+## если комнату между постановкой и выполнением успели сменить (clear_room).
+func _emit_empty_encounter_cleared(serial: int) -> void:
+	if serial != _encounter_serial or _alive_count > 0:
+		return
+	encounter_cleared.emit()
+
+
+## Клетки пола под набор врагов: только те, что по горизонтали не ближе
+## ENCOUNTER_MIN_SPAWN_DISTANCE ко всем точкам keep_away и ко всем бойцам.
+##
+## Выбор из полного списка подходящих клеток, а не случайные повторы, как в
+## _pick_spawn_transform: восемь попыток там ничего не гарантируют и после
+## неудачи соглашаются на точку вплотную к игроку. Пустой результат - комнаты
+## нет, и вызывающий откатывается на прежний выбор.
+func _encounter_spawn_positions(count: int, keep_away: Array) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	if combat_room == null or count <= 0:
+		return out
+
+	var points: Array[Vector3] = []
+	for p in keep_away:
+		points.append(p)
+	for f in get_fighters():
+		points.append(f.global_position)
+
+	var min_d2 := ENCOUNTER_MIN_SPAWN_DISTANCE * ENCOUNTER_MIN_SPAWN_DISTANCE
+	var eligible: Array[Vector3] = []
+	var farthest := combat_room.global_position
+	var farthest_d2 := -1.0
+	for pos in combat_room.get_floor_positions():
+		var nearest := INF
+		for p in points:
+			nearest = minf(nearest, Vector2(pos.x - p.x, pos.z - p.z).length_squared())
+		if nearest >= min_d2:
+			eligible.append(pos)
+		if nearest > farthest_d2:
+			farthest_d2 = nearest
+			farthest = pos
+	if eligible.is_empty():
+		# Комната фиксированного габарита 26x22 м такого не допускает, но
+		# молча ставить вплотную нельзя - именно это и лечим.
+		push_warning("Arena: в комнате нет клеток дальше %.0f м от входа - ставлю в самую дальнюю"
+			% ENCOUNTER_MIN_SPAWN_DISTANCE)
+		eligible.append(farthest)
+
+	# Перемешиваем своим _rng, а не Array.shuffle(): тот берёт глобальный
+	# генератор, и сид арены перестал бы что-либо значить.
+	for i in range(eligible.size() - 1, 0, -1):
+		var j := _rng.randi_range(0, i)
+		var tmp := eligible[i]
+		eligible[i] = eligible[j]
+		eligible[j] = tmp
+	# Разные клетки, пока их хватает: два зомби в одной точке физический
+	# сервер разводит рывком.
+	for i in count:
+		out.append(eligible[i % eligible.size()])
+	return out
+
+
+## Спавн в заданной точке пола: зомби смотрит на ближайшего бойца и стоит
+## ровно на уровне пола комнаты (про капсулу - см. _pick_spawn_transform).
+## Отдельная функция, а не правка _pick_spawn_transform, чтобы путь обучения
+## не изменился ни на байт.
+func _spawn_transform_at(pos: Vector3) -> Transform3D:
+	var facing := closest_fighter_to(pos)
+	var look := facing.global_position if facing != null else gladiator.global_position
+	var dir := look - pos
+	dir.y = 0.0
+	var yaw := atan2(-dir.x, -dir.z) if dir.length_squared() > 0.0001 else 0.0
+	var floor_y := combat_room.global_position.y if combat_room != null else global_position.y
+	return Transform3D(Basis(Vector3.UP, yaw), Vector3(pos.x, floor_y, pos.z))
 
 
 func _start_next_wave() -> void:
@@ -849,6 +954,9 @@ func clear_room() -> void:
 	_alive_count = 0
 	wave_index = 0
 	_started = true
+	# Отложенный encounter_cleared пустого набора из прошлой комнаты не должен
+	# прийти уже в новую и засчитать зачищенной её.
+	_encounter_serial += 1
 
 
 # --- Данные для наблюдений / отладочного HUD ---

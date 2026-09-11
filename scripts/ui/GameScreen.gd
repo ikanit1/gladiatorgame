@@ -1,18 +1,41 @@
 extends Node3D
 
-## Игровая сцена: арена по настройкам из меню, HUD на двоих, пауза и итоги.
+## Игровая сцена: этаж по сетке, бой за комнату, HUD на двоих, пауза и итоги.
 ##
 ## Арена создаётся кодом, а не стоит в .tscn инстансом. Причина простая:
 ## Arena._ready() выполняется раньше, чем _ready() родителя, и настройки
 ## (кооператив, сложность) успели бы опоздать - арена уже собрала бы пул
 ## и запустила первую волну по значениям из .tscn.
 
+## Игрок вошёл в клетку этажа. from_side - сторона новой комнаты, через
+## которую вошли; -1 - старт этажа. Испускается в самом конце входа, когда
+## бойцы расставлены, враги поставлены и двери выставлены.
+signal room_entered(cell: Vector2i, from_side: int)
+
 const MENU_SCENE := "res://scenes/ui/MainMenu.tscn"
 
 ## Сколько секунд держится подсказка по управлению при входе в комнату
 const HINT_SECONDS := 12.0
 
+## На этом расстоянии (по горизонтали) от проёма игрок считается вошедшим в
+## соседнюю комнату.
+const DOOR_REACH := 1.6
+## Переход - только когда игрок идёт В проём, быстрее этой скорости, м/с.
+const DOOR_PUSH_SPEED := 0.3
+## Бойцы после перехода встают на этой глубине от линии стены, м. Заметно
+## больше DOOR_REACH: иначе вставший у порога ушёл бы обратно следующим кадром.
+const ENTRY_DEPTH := 3.0
+## Расстояние между бойцами поперёк стороны входа, м.
+const ENTRY_SPACING := 1.5
+## Запас от точки бойца до края пола: половина толщины стены (0.3) плюс
+## радиус капсулы (0.4) и немного сверху.
+const ENTRY_CLEARANCE := 0.8
+
 @export var arena_scene: PackedScene
+## Сид забега; 0 - случайный. Задаётся до _ready (например, проверкой
+## tools/check_game_floor.gd): от него зависят планировка этажа, контуры
+## комнат, состав врагов и клетки их спавна.
+@export var run_seed: int = 0
 
 var arena: Arena
 var _elapsed: float = 0.0
@@ -39,10 +62,14 @@ var _hint_time: float = HINT_SECONDS
 var _toast: Label
 var _toast_time: float = 0.0
 var _rng := RandomNumberGenerator.new()
-var _taken: Array[String] = []
-var _room_index: int = 0
-var _room_cfg: Dictionary = {}
-var _exit_hint: Label
+var _run: RunState = null
+var _plan: FloorPlan = null
+var _floor: DungeonFloor = null
+var _door_hint: Label
+## Середина между точками, где встали бойцы при последнем входе в комнату.
+## От неё (и от двери входа) Arena держит зомби на дистанции.
+var _entry_point: Vector3 = Vector3.ZERO
+var _last_transition_frame: int = -10
 
 # --- Ощущение удара ---
 ## Хит-стоп замедляет ВСЮ игру, поэтому он существует только здесь, в игровой
@@ -56,12 +83,23 @@ var _stop_until_ms: int = 0
 
 
 func _ready() -> void:
-	_rng.randomize()
+	if run_seed != 0:
+		_rng.seed = run_seed
+	else:
+		_rng.randomize()
+	# RunState - сразу, а не в отложенном _start_floor: HUD и итоги читают его
+	# с первого же кадра.
+	_run = RunState.new()
 	_build_arena()
 	_build_hud()
-	# Первая комната генерируется ПОСЛЕ HUD: подсказка о выходе и всплывающее
-	# сообщение уже должны существовать к моменту входа.
-	_enter_room(1)
+	# Первый этаж строится ОТЛОЖЕННО. Arena._ready() ставит свой
+	# reset_arena.call_deferred() в ту же очередь, и если войти в комнату
+	# раньше, этот reset погасит только что расставленных врагов и вернёт
+	# бойцов на стартовую позицию арены. Отложенные вызовы выполняются в
+	# порядке постановки, а арена добавлена в дерево раньше - значит её reset
+	# отработает первым. HUD к этому моменту уже построен: подсказка о двери и
+	# всплывающее сообщение нужны при входе.
+	_start_floor.call_deferred(1)
 	_capture_mouse(true)
 	set_process_input(true)
 
@@ -73,13 +111,27 @@ func _build_arena() -> void:
 
 	arena = arena_scene.instantiate()
 	GameConfig.apply_to_arena(arena)   # обязательно ДО add_child
+	# Комната - один бой: набор врагов приходит от GameScreen через
+	# spawn_encounter, арена сама волн не заводит.
+	arena.encounter_driven = true
+	arena.waves_in_room = 1
+	# Таймерный спавн зелий в игре выключен: зелье каждые восемь секунд и было
+	# одной из причин, почему в бою не чувствовалось давления. В обучении
+	# таймер остаётся - ближайшее зелье входит в наблюдения и в награду.
+	arena.potion_interval = 1.0e9
+	if run_seed != 0:
+		# Клетки спавна выбирает генератор арены - при заданном сиде забега он
+		# тоже обязан повторяться.
+		arena.arena_seed = run_seed + 1
 	add_child(arena)
+	# После add_child: у бойцов до их _ready() здоровье ещё не выставлено
+	# (см. GameConfig.apply_weak_start).
+	GameConfig.apply_weak_start(arena.get_fighters())
 
 	arena.episode_ended.connect(_on_episode_ended)
-	arena.wave_cleared.connect(_on_wave_cleared)
 	arena.fighter_downed.connect(_on_fighter_downed)
 	arena.fighter_revived.connect(_on_fighter_revived)
-	arena.room_cleared.connect(_on_room_cleared)
+	arena.encounter_cleared.connect(_on_encounter_cleared)
 	_bind_juice()
 
 	# Камера следит за игроком, а не за напарником
@@ -238,7 +290,9 @@ func _build_chips() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	back.add_child(row)
 
-	for spec in [["arch", "room", UITheme.FG], ["banner", "wave", UITheme.FG],
+	# Монеты - на месте бывшего счётчика волн. Глифа монеты в наборе нет,
+	# поэтому значение подписано словом (см. _update_hud).
+	for spec in [["arch", "room", UITheme.FG], ["emblem", "coins", UITheme.FG],
 			["skull", "kills", UITheme.FG], ["sword", "alive", UITheme.DANGER],
 			["hourglass", "time", UITheme.FG]]:
 		var chip := HBoxContainer.new()
@@ -281,13 +335,14 @@ func _build_revive_bar() -> void:
 
 
 func _build_notices() -> void:
-	_exit_hint = UITheme.label("", 16, UITheme.GOOD)
-	_exit_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_exit_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_exit_hint.position = Vector2(0, -112)
-	_exit_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_exit_hint.visible = false
-	_hud.add_child(_exit_hint)
+	_door_hint = UITheme.label("", 16, UITheme.GOOD)
+	_door_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_door_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_door_hint.position = Vector2(0, -112)
+	_door_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_door_hint.visible = false
+	_hud.add_child(_door_hint)
+	# 13b: подсказка о сундуке и люке строкой выше двери (_chest_hint).
 
 	_toast = UITheme.label("", 18, UITheme.ACCENT)
 	_toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -321,8 +376,11 @@ func _update_hud(delta: float) -> void:
 		_a_bar.set_text("%d / %d" % [roundi(a.health), roundi(a.max_health)]
 			if a.is_alive() else "пал")
 
-	_chips["room"].text = str(_room_index)
-	_chips["wave"].text = "%d/%d" % [arena.wave_index, arena.waves_in_room]
+	# Этаж и число зачищенных комнат этажа: «1-3» - первый этаж, три комнаты.
+	_chips["room"].text = "%d-%d" % [_run.floor_number, _run.cleared.size()]
+	# Словом, а не голой цифрой: раньше на этом месте стояли волны «1/2», и
+	# одинокое число читалось бы как они же.
+	_chips["coins"].text = "монеты %d" % _run.coins
 	_chips["kills"].text = str(arena.total_kills)
 	_chips["alive"].text = str(arena.get_alive_count())
 	_chips["time"].text = "%d:%02d" % [int(_elapsed) / 60, int(_elapsed) % 60]
@@ -448,72 +506,300 @@ func _exit_tree() -> void:
 
 
 # ------------------------------------------------------------------
-# Комнаты
+# Этаж и комнаты
 # ------------------------------------------------------------------
 
-## Здоровье переносится между комнатами долей, а не абсолютом: улучшение
-## «+25 к максимуму» иначе выглядело бы как потеря, ведь после перехода
-## полоса становилась бы короче относительно нового максимума.
-func _enter_room(index: int) -> void:
-	var carry := {}
-	for f in arena.get_fighters():
-		if f.is_alive():
-			carry[f] = f.get_health_ratio()
+func _start_floor(floor_number: int) -> void:
+	if arena == null or _run == null:
+		return
+	_plan = FloorPlan.generate(floor_number, _rng)
 
-	_room_index = index
-	_room_cfg = RoomGenerator.generate(index, _rng)
-	if index == 1:
-		arena.apply_room(_room_cfg)
-	else:
-		arena.advance_to_room(_room_cfg)
-	GameConfig.apply_difficulty_to_room(arena)
+	if _floor != null:
+		_floor.queue_free()
+	_floor = DungeonFloor.new()
+	_floor.name = "DungeonFloor"
+	add_child(_floor)
+	# Сид геометрии - из того же _rng: при заданном run_seed этаж повторяется
+	# целиком, вместе с контурами комнат. «| 1» - чтобы не выпал ноль, он
+	# означает «случайный».
+	_floor.setup(_plan, true, _rng.randi() | 1)
 
-	for f in arena.get_fighters():
-		if carry.has(f):
-			# Небольшая передышка за пройденную комнату
-			f.health = clampf(f.max_health * float(carry[f]) + 15.0, 1.0, f.max_health)
+	_enter_cell(FloorPlan.START_CELL, -1)
+	_show_toast("Этаж %d · комнат: %d" % [floor_number, _plan.room_count()])
 
-	_exit_hint.visible = false
+
+## Текущая комната этажа; null, пока отложенный _start_floor не отработал.
+func current_room() -> DungeonRoom:
+	return _floor.current_room() if _floor != null else null
+
+
+## Вход в клетку. from_side - сторона НОВОЙ комнаты, через которую вошли (у
+## неё и встают бойцы); -1 - старт этажа, бойцы встают в центре.
+func _enter_cell(cell: Vector2i, from_side: int) -> void:
+	if _floor == null or _run == null:
+		return
+	var room := _floor.enter_cell(cell)
+	if room == null:
+		return
+
+	_run.mark_visited(cell)
+	arena.combat_room = room
+
+	# clear_room, а не reset_arena: второй зовёт reset_state, а тот лечит
+	# команду до полного и поднимает поверженного напарника. Здоровье тут
+	# просто сохраняется само - max_health при переходе не меняется.
+	arena.clear_room()
+
+	var spots := _entry_spots(room, from_side)
+	_entry_point = (spots[0] + spots[1]) * 0.5
+	_place_fighters(spots)
+	_last_transition_frame = Engine.get_process_frames()
+
+	# Сначала враги, потом двери: запирать ли двери, решает число живых.
+	_populate_room(cell, room, from_side)
+	_update_door_states(cell, room)
+
+	_door_hint.visible = false
 	# Подсказка по управлению возвращается в каждой новой комнате: между
 	# забегами легко забыть, что напарника поднимают именно F.
 	_hint_time = HINT_SECONDS
 	_hint_box.modulate.a = 1.0
 	_hint_box.visible = true
-	_show_toast(RoomGenerator.describe(_room_cfg))
+	room_entered.emit(cell, from_side)
 
 
-func _on_room_cleared(_index: int) -> void:
-	_show_toast("Комната зачищена — дверь открыта")
+## Две точки для бойцов у входа: на полу, поперёк стороны входа (касательно
+## проёму) и на ENTRY_DEPTH вглубь от линии стены.
+##
+## Поперёк, а не с общим смещением по оси X, как было в плане: при входе с
+## востока или запада смещение по X ставило второго бойца либо в сам проём,
+## либо глубже первого - и первый оказывался у порога.
+func _entry_spots(room: DungeonRoom, from_side: int) -> Array[Vector3]:
+	var base := room.global_position
+	var inward := Vector3.ZERO
+	var tangent := Vector3.RIGHT
+	var depths: Array[float] = [0.0]
+	if from_side >= 0:
+		inward = -DungeonRoom.side_direction(from_side)
+		tangent = Vector3.RIGHT if from_side < 2 else Vector3.BACK
+		base = room.door_position(from_side)
+		base.y = room.global_position.y
+		# Глубину наращиваем, пока обе точки не лягут на пол с запасом: у
+		# ромбовидной и восьмиугольной комнаты пол у самой стены узкий.
+		depths = [ENTRY_DEPTH, ENTRY_DEPTH + 1.0, ENTRY_DEPTH + 2.0, ENTRY_DEPTH + 3.0]
+
+	var spacings: Array[float] = [ENTRY_SPACING, 1.1]
+	for depth in depths:
+		var center := base + inward * depth
+		for spacing in spacings:
+			var a := center - tangent * (spacing * 0.5)
+			var b := center + tangent * (spacing * 0.5)
+			if room.has_floor_at(a, ENTRY_CLEARANCE) and room.has_floor_at(b, ENTRY_CLEARANCE):
+				var spots: Array[Vector3] = [a, b]
+				return spots
+
+	# Не должно случаться: средние линии комнаты есть у любого контура
+	# (RoomGenerator.cells_for). Но молча ставить бойцов в стену нельзя.
+	push_warning("GameScreen: у входа %d комнаты %s не нашлось места для бойцов"
+		% [from_side, room.name])
+	var fallback := base + inward * ENTRY_DEPTH
+	var spots: Array[Vector3] = [fallback - tangent * 0.6, fallback + tangent * 0.6]
+	return spots
 
 
+## Бойцы ставятся в точки входа, не друг в друга: два тела в одной позиции
+## физический сервер разводит рывком в стену.
+##
+## reset_state здесь звать НЕЛЬЗЯ по той же причине, что и reset_arena: он
+## лечит до полного и снимает _downed. Переносим только позицию и скорость -
+## здоровье и «повержен» переживают переход сами.
+func _place_fighters(spots: Array[Vector3]) -> void:
+	var fighters := arena.get_fighters()
+	for i in fighters.size():
+		var f: Gladiator = fighters[i]
+		f.velocity = Vector3.ZERO
+		f.global_position = spots[mini(i, spots.size() - 1)] + Vector3.UP * 0.05
+
+
+func _populate_room(cell: Vector2i, room: DungeonRoom, from_side: int) -> void:
+	var room_type := int(_plan.spec(cell)["type"])
+
+	if room_type in [FloorPlan.RoomType.START, FloorPlan.RoomType.TREASURE,
+			FloorPlan.RoomType.SECRET, FloorPlan.RoomType.SHOP]:
+		# 13b: сокровищница, лавка и секретка получают сундук (см. план,
+		# _add_chest). В 13a эти комнаты просто пустые и без боя.
+		return
+
+	if _run.is_cleared(cell):
+		return   # уже зачищено, врагов второй раз не ставим
+
+	var count := ThreatCurve.enemy_count(_run.floor_number, _rng)
+	if room_type == FloorPlan.RoomType.LOCKED:
+		count = ThreatCurve.locked_room_enemy_count(_run.floor_number, _rng)
+	elif room_type == FloorPlan.RoomType.BOSS:
+		# Босс во втором плане; пока усиленный набор обычных врагов, чтобы
+		# этаж имел финал.
+		count += 3
+
+	arena.max_alive = count
+	# Спека: враги не ближе 6 м от двери входа. Дверь и место, где встали
+	# бойцы, - обе точки: бойцы стоят в трёх метрах от проёма.
+	var keep_away: Array = [_entry_point]
+	if from_side >= 0:
+		keep_away.append(room.door_position(from_side))
+	arena.spawn_encounter(_build_encounter(count), keep_away)
+
+	if arena.get_alive_count() > 0:
+		_show_toast("Логово босса — двери заперты" if room_type == FloorPlan.RoomType.BOSS
+			else "Двери заперты — зачисти комнату")
+
+
+func _build_encounter(count: int) -> Array:
+	# Сложность множит глубину, а не поля арены: одна кривая обслуживает все
+	# три режима. Применяется здесь и только здесь.
+	var t := ThreatCurve.threat(_run.floor_number,
+		_run.cleared_combat_rooms(_plan), _plan.combat_room_count()) \
+		* GameConfig.difficulty_threat_mult
+	var specs: Array = []
+	for i in count:
+		specs.append({
+			"variant": ThreatCurve.pick_variant(_run.floor_number, _rng),
+			"health_scale": ThreatCurve.health_scale(t),
+			"speed_scale": ThreatCurve.speed_scale(t),
+			"damage_scale": ThreatCurve.damage_scale(t),
+			"cooldown_scale": ThreatCurve.cooldown_scale(t),
+		})
+	return specs
+
+
+## Двери комнаты: бой держит закрытыми все доступные входы, ключ остаётся как
+## задал FloorPlan.
+##
+## Состояние пишется с ОБЕИХ сторон общей двери. У соседней комнаты своя
+## коллизия-блокиратор на той же стене, и её устаревшее состояние (например,
+## LOCKED_BY_FIGHT, оставшийся с прошлого боя, или треснувшая стена из
+## постройки) заперло бы проход, открытый с этой стороны.
+func _update_door_states(cell: Vector2i, room: DungeonRoom) -> void:
+	var fight_pending := arena.get_alive_count() > 0
+	var doors := _plan.doors_of(cell)
+	for side in doors.keys():
+		var state := _effective_door_state(int(doors[side]), fight_pending)
+		room.set_door_state(side, state)
+		var neighbour := _floor.built_room(cell + FloorPlan.SIDE_OFFSETS[side])
+		if neighbour != null:
+			neighbour.set_door_state(FloorPlan.opposite_side(side), state)
+
+
+## Во что превращается дверь из плана в этом срезе.
+##
+## Треснувшая стена открыта: бомб и подрыва ещё нет, и по пометке плана
+## секретка в срезе 1 доступна как обычный тупик. Во втором плане стену
+## будут открывать бомбой, и эта ветка уйдёт. Запертая на ключ дверь - тоже
+## второй план: остаётся закрытой. Бой запирает всё, что доступно, включая
+## открытый в срезе вход в секретку.
+func _effective_door_state(planned: int, fight_pending: bool) -> int:
+	if planned == FloorPlan.DoorState.LOCKED_BY_KEY:
+		return planned
+	return FloorPlan.DoorState.LOCKED_BY_FIGHT if fight_pending else FloorPlan.DoorState.OPEN
+
+
+func _on_encounter_cleared() -> void:
+	if _finished or _floor == null or _run == null:
+		return
+	var cell := _floor.current_cell
+	# Отметка ровно одна: повторный сигнал для уже зачищенной клетки (его быть
+	# не должно, но охрана дешевле расследования) не прибавляет прогресса.
+	var first := not _run.is_cleared(cell)
+	if first:
+		_run.mark_cleared(cell)
+
+	var room := _floor.current_room()
+	if room != null:
+		_update_door_states(cell, room)
+
+	if first:
+		# 13b: сундук босса и два запертых сундука, зелье за зачистку (30%,
+		# за босса гарантированно), люк вниз после босса.
+		_show_toast("Комната зачищена — двери открыты")
+
+
+## Ближайшая открытая дверь текущей комнаты к точке from (по горизонтали)
+## или -1. Отдаётся наружу: инструменты (tools/soak_300.gd) ведут по ней
+## бойца, не зная про устройство этажа.
+func nearest_open_door(from: Vector3) -> int:
+	var room := current_room()
+	if room == null:
+		return -1
+	var best := -1
+	var best_d := INF
+	for side in room.open_sides():
+		var d := _flat_distance(from, room.door_position(side))
+		if d < best_d:
+			best_d = d
+			best = side
+	return best
+
+
+## Переход через открытую дверь.
 func _update_room() -> void:
-	if not arena.exit_open:
-		_exit_hint.visible = false
+	var room := current_room()
+	if room == null or _plan == null:
+		_door_hint.visible = false
+		return
+	var player := arena.gladiator
+	if not player.is_alive():
+		_door_hint.visible = false
 		return
 
-	_exit_hint.visible = true
-	var d := arena.gladiator.global_position.distance_to(arena.exit_position)
-	_exit_hint.text = "Дверь открыта — пройди в соседнюю комнату   (%.0f м)" % d
+	# 13b: люк в зачищенной комнате босса - подсказка и спуск по F, никакого
+	# автоматического спуска по близости.
 
-	if arena.fighter_at_exit(arena.gladiator):
-		_enter_room(_room_index + 1)
+	var side := nearest_open_door(player.global_position)
+	if side < 0:
+		_door_hint.visible = false
+		return
+
+	var d := _flat_distance(player.global_position, room.door_position(side))
+	_door_hint.visible = true
+	_door_hint.text = "Дверь открыта — проход в соседнюю комнату   (%.0f м)" % d
+	if d > DOOR_REACH:
+		return
+
+	# Переход - только когда игрок идёт В проём. Стоящий у двери (например,
+	# прижатый к ней, пока её держал бой) не должен улетать в соседнюю
+	# комнату в тот же миг, как она откроется.
+	var push := Vector3(player.velocity.x, 0.0, player.velocity.z) \
+		.dot(DungeonRoom.side_direction(side))
+	if push < DOOR_PUSH_SPEED:
+		return
+	# Второй рубеж против мгновенного возврата: бойцы и так встают глубже
+	# DOOR_REACH, но переход в том же или соседнем кадре не нужен никогда.
+	if Engine.get_process_frames() - _last_transition_frame <= 1:
+		return
+
+	var target: Vector2i = _floor.current_cell + FloorPlan.SIDE_OFFSETS[side]
+	if not _plan.has_room(target):
+		return
+	_door_hint.visible = false
+	_enter_cell(target, FloorPlan.opposite_side(side))
+
+
+static func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
 # ------------------------------------------------------------------
-# Улучшения между волнами
+# Улучшения
 # ------------------------------------------------------------------
 
-func _on_wave_cleared(wave: int) -> void:
-	if _finished or wave <= 0:
-		return
-	_show_upgrades()
-
-
+## 13b: вызывается из сундука (обычный - три из LIST, запертый - три из RARE,
+## босса - один из RARE). В 13a награды за волну больше нет, и вызывающего
+## пока нет вовсе.
 func _show_upgrades() -> void:
 	for c in _upgrade_box.get_children():
 		c.queue_free()
 
-	var title := UITheme.title("Волна отбита — выбери награду", 28, UITheme.ACCENT, 0)
+	var title := UITheme.title("Выбери награду", 28, UITheme.ACCENT, 0)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_upgrade_box.add_child(title)
 	_upgrade_box.add_child(_spacer(6))
@@ -575,7 +861,7 @@ func _upgrade_card(u: Dictionary) -> Button:
 
 func _on_upgrade_picked(id: String) -> void:
 	Upgrades.apply(id, arena.get_fighters(), arena)
-	_taken.append(id)
+	_run.taken_upgrades.append(id)
 	_upgrade_overlay.visible = false
 	get_tree().paused = false
 	_capture_mouse(true)
@@ -685,8 +971,8 @@ func _toggle_pause() -> void:
 		_stop_until_ms = 0
 	if pausing:
 		_overlay_title.text = "Пауза"
-		_overlay_text.text = "Волна %d (всего %d), убито %d" % [
-			arena.wave_index, arena.run_wave_index, arena.total_kills]
+		_overlay_text.text = "Этаж %d · комнат зачищено %d · убито %d" % [
+			_run.floor_number, _run.cleared.size(), arena.total_kills]
 
 
 func _on_episode_ended(_reason: String) -> void:
@@ -699,7 +985,8 @@ func _on_episode_ended(_reason: String) -> void:
 	_stop_until_ms = 0
 
 	GameConfig.last_result = {
-		"wave": arena.run_wave_index,
+		"floor": _run.floor_number,
+		"rooms": _run.cleared.size(),
 		"kills": arena.total_kills,
 		"time": _elapsed,
 	}
@@ -707,10 +994,11 @@ func _on_episode_ended(_reason: String) -> void:
 	_overlay_title.text = "Арена пала"
 	_overlay_text.text = "\n".join([
 		"Продержались %d:%02d" % [int(_elapsed) / 60, int(_elapsed) % 60],
-		"Комнат пройдено: %d" % maxi(_room_index - 1, 0),
-		"Волна %d (всего %d), убито зомби: %d" % [
-			arena.wave_index, arena.run_wave_index, arena.total_kills],
-		"Улучшений собрано: %d" % _taken.size(),
+		"Этаж: %d" % _run.floor_number,
+		"Комнат зачищено: %d" % _run.cleared.size(),
+		"Убито зомби: %d" % arena.total_kills,
+		"Улучшений собрано: %d" % _run.taken_upgrades.size(),
+		"Монет: %d" % _run.coins,
 	])
 	_overlay.visible = true
 

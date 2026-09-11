@@ -9,6 +9,38 @@ func _ready() -> void:
 	for _i in range(60):
 		await get_tree().process_frame
 
+	# Стартовая комната этажа по дизайну пустая, бой идёт только в боевой
+	# комнате. Входим в ближайшую боевую тем же путём, что и переход в дверь
+	# (_enter_cell): полосе здоровья всё равно, как игрок попал в комнату, а
+	# ждать, пока кто-то дойдёт до двери, этой проверке незачем.
+	var plan: FloorPlan = game.get("_plan")
+	if plan == null:
+		print("ПРОВАЛ: этаж не построен")
+		get_tree().quit(1)
+		return
+	var target := Vector2i(-1, -1)
+	var entry_side := -1
+	var start_doors := plan.doors_of(FloorPlan.START_CELL)
+	for side in start_doors.keys():
+		var cell: Vector2i = FloorPlan.START_CELL + FloorPlan.SIDE_OFFSETS[side]
+		if int(plan.spec(cell)["type"]) == FloorPlan.RoomType.COMBAT:
+			target = cell
+			entry_side = FloorPlan.opposite_side(side)
+			break
+	if entry_side < 0:
+		for cell in plan.rooms.keys():
+			if int(plan.spec(cell)["type"]) != FloorPlan.RoomType.COMBAT:
+				continue
+			var doors := plan.doors_of(cell)
+			if doors.is_empty():
+				continue
+			target = cell
+			entry_side = int(doors.keys()[0])
+			break
+	game.call("_enter_cell", target, entry_side)
+	for _i in range(6):
+		await get_tree().process_frame
+
 	var arena = game.get("arena")
 	var zombies = arena.get_alive_zombies()
 	if zombies.is_empty():
