@@ -14,6 +14,15 @@ extends RefCounted
 const THEMES := ["песчаная", "каменная", "багровая", "сумеречная"]
 const CELL_SIZE := 2.0
 
+## Габарит комнаты фиксирован: комнаты складываются в сетку этажа, центр
+## комнаты считается как cell * (ROOM_WIDTH, ROOM_DEPTH). Числа обязаны быть
+## нечётными в клетках, иначе у стороны нет центральной клетки и дверь некуда
+## поставить.
+const GRID_W := 13
+const GRID_D := 11
+const ROOM_WIDTH := float(GRID_W) * CELL_SIZE   ## 26.0 м
+const ROOM_DEPTH := float(GRID_D) * CELL_SIZE   ## 22.0 м
+
 const SHAPES := [
 	"квадратная", "прямоугольная", "восьмиугольная", "ромбовидная",
 	"Г-образная", "крестовая", "с вырезом"
@@ -28,64 +37,29 @@ const THEME_FLOOR := {
 }
 
 
-## index - номер комнаты, начиная с 1.
-static func generate(index: int, rng: RandomNumberGenerator) -> Dictionary:
-	# Размеры кратны CELL_SIZE: так соседние комнаты можно состыковать
-	# вплотную, а дверь всегда попадает в общий двухметровый проём.
+## Только геометрия и оформление. Баланс - количество врагов, их состав,
+## лимиты - живёт в ThreatCurve: раньше планировщик и балансировщик сидели в
+## одном файле, и это мешало тестировать обоих.
+static func geometry(rng: RandomNumberGenerator) -> Dictionary:
 	var shape: String = SHAPES[rng.randi_range(0, SHAPES.size() - 1)]
-	var grid_w := 2 * rng.randi_range(4, 7) + 1
-	var grid_d := 2 * rng.randi_range(4, 7) + 1
-	if shape == "квадратная":
-		grid_d = grid_w
-	elif shape == "прямоугольная":
-		grid_w = 2 * rng.randi_range(5, 7) + 1
-		grid_d = 2 * rng.randi_range(4, 6) + 1
-	elif shape == "ромбовидная":
-		grid_w = 2 * rng.randi_range(5, 7) + 1
-		grid_d = 2 * rng.randi_range(5, 7) + 1
-	elif shape == "крестовая":
-		grid_w = 2 * rng.randi_range(5, 7) + 1
-		grid_d = 2 * rng.randi_range(5, 7) + 1
-	else:
-		grid_w = 2 * rng.randi_range(5, 7) + 1
-		grid_d = 2 * rng.randi_range(5, 6) + 1
-
-	var width := float(grid_w) * CELL_SIZE
-	var depth := float(grid_d) * CELL_SIZE
-
-	# Волн в комнате: чем дальше, тем длиннее забег
-	var waves := 2
-	if index >= 3:
-		waves = 3
-	if index >= 7:
-		waves = 4
-
 	var theme: String = THEMES[rng.randi_range(0, THEMES.size() - 1)]
-
 	return {
-		"index": index,
-		"width": width,
-		"depth": depth,
-		"grid_w": grid_w,
-		"grid_d": grid_d,
 		"shape": shape,
-		"waves": waves,
 		"theme": theme,
+		"grid_w": GRID_W,
+		"grid_d": GRID_D,
+		"width": ROOM_WIDTH,
+		"depth": ROOM_DEPTH,
 		"floor_color": THEME_FLOOR.get(theme, Color(0.74, 0.62, 0.43)),
-		# Разновидности врагов подключаются постепенно, а не сваливаются разом
-		"runner_from": 1 if index >= 2 else 99,
-		"brute_from": 1 if index >= 4 else 99,
-		"first_wave": 2 + mini(index / 2, 3),
-		"max_alive": mini(6 + index, 14),
-		"potion_interval": maxf(6.0, 10.0 - float(index) * 0.3),
 	}
 
 
 ## Короткое описание для экрана перехода.
 static func describe(cfg: Dictionary) -> String:
-	return "Комната %d · %s · %s · %.0f×%.0f · волн: %d" % [
-		cfg["index"], cfg["theme"], cfg.get("shape", "прямоугольная"),
-		cfg["width"], cfg["depth"], cfg["waves"]]
+	return "Этаж %d · комната %s · %s" % [
+		int(cfg.get("floor_number", 1)),
+		str(cfg.get("shape", "прямоугольная")),
+		str(cfg.get("theme", "каменная"))]
 
 
 ## Возвращает клетки пола комнаты. Стены строятся по открытым рёбрам этих
