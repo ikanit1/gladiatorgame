@@ -553,6 +553,11 @@ func _enter_cell(cell: Vector2i, from_side: int) -> void:
 	var spots := _entry_spots(room, from_side)
 	_entry_point = (spots[0] + spots[1]) * 0.5
 	_place_fighters(spots)
+	# На старте этажа двери входа нет, и «внутрь» не определено: бойцы стоят
+	# в центре так, как их поставил reset_arena, а камера уже встала им за
+	# спину по сигналу respawned.
+	if from_side >= 0:
+		_face_into_room(from_side)
 	_last_transition_frame = Engine.get_process_frames()
 
 	# Сначала враги, потом двери: запирать ли двери, решает число живых.
@@ -580,7 +585,7 @@ func _entry_spots(room: DungeonRoom, from_side: int) -> Array[Vector3]:
 	var tangent := Vector3.RIGHT
 	var depths: Array[float] = [0.0]
 	if from_side >= 0:
-		inward = -DungeonRoom.side_direction(from_side)
+		inward = _inward(from_side)
 		tangent = Vector3.RIGHT if from_side < 2 else Vector3.BACK
 		base = room.door_position(from_side)
 		base.y = room.global_position.y
@@ -625,6 +630,39 @@ func _place_fighters(spots: Array[Vector3]) -> void:
 		var f: Gladiator = fighters[i]
 		f.velocity = Vector3.ZERO
 		f.global_position = spots[mini(i, spots.size() - 1)] + Vector3.UP * 0.05
+
+
+## Направление внутрь комнаты от двери стороны from_side.
+static func _inward(from_side: int) -> Vector3:
+	return -DungeonRoom.side_direction(from_side)
+
+
+## Разворот лицом в комнату после входа через сторону from_side.
+##
+## Позиция при переходе телепортируется, а поворот - нет: Gladiator не
+## прыгает в intent_facing_yaw, а догоняет его с конечной скоростью, и тело
+## сохраняло прежнее направление. Войдя спиной, игрок так и стоял лицом к
+## решётке, через которую пришёл.
+##
+## У игрока направление держит не тело, а камера: PlayerInput строит движение
+## от её угла и при движении (или с поднятым щитом) выводит из него же
+## intent_facing_yaw. Развернуть одно тело мало - следующий же кадр ввода
+## вернул бы его к старому углу камеры. Поэтому согласованно: тело и
+## намерение у обоих бойцов, камера - за спину игроку. Напарнику достаточно
+## тела: его поворотом дальше управляет политика через intent_turn.
+func _face_into_room(from_side: int) -> void:
+	var inward := _inward(from_side)
+	var yaw := atan2(-inward.x, -inward.z)
+	for f in arena.get_fighters():
+		f.global_rotation.y = yaw
+		f.intent_facing_yaw = yaw
+	# Кадр движения запоминаем ДО разворота камеры: пока игрок держит те же
+	# клавиши, он идёт туда же, куда шёл (см. PlayerInput.hold_move_frame).
+	var controller := arena.gladiator.get_node_or_null("PlayerInput")
+	if controller != null and controller.has_method("hold_move_frame"):
+		controller.hold_move_frame()
+	if _rig != null and _rig.has_method("snap_behind_target"):
+		_rig.snap_behind_target()
 
 
 func _populate_room(cell: Vector2i, room: DungeonRoom, from_side: int) -> void:

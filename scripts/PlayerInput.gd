@@ -3,9 +3,17 @@ extends Node
 ## Camera-relative manual input. AI still uses the original scalar intents.
 @export var attack_buffer_time: float = 0.25
 
+## Насколько может сместиться ввод, чтобы считаться «теми же клавишами» после
+## склейки камеры. Клавиатура дискретна; запас - на аналоговый стик.
+const HOLD_STICK_TOLERANCE := 0.2
+
 @onready var _g: Gladiator = get_parent() as Gladiator
 var _queued_attack: int = -1
 var _buffer_left: float = 0.0
+## Кадр движения, удержанный после склейки камеры (см. hold_move_frame).
+var _holding := false
+var _held_yaw: float = 0.0
+var _held_stick := Vector2.ZERO
 
 func _ready() -> void:
 	process_physics_priority = -10
@@ -50,7 +58,13 @@ func _physics_process(delta: float) -> void:
 	var camera := get_viewport().get_camera_3d()
 	_g.intent_aim_direction = -camera.global_basis.z if camera != null else _g.forward()
 	var stick := Input.get_vector("g_left", "g_right", "g_forward", "g_back")
-	_g.intent_move_world = Vector3(stick.x, 0.0, stick.y).rotated(Vector3.UP, camera_yaw)
+	var move_yaw := camera_yaw
+	if _holding:
+		if stick.distance_to(_held_stick) <= HOLD_STICK_TOLERANCE:
+			move_yaw = _held_yaw
+		else:
+			_holding = false
+	_g.intent_move_world = Vector3(stick.x, 0.0, stick.y).rotated(Vector3.UP, move_yaw)
 	_g.intent_block = Input.is_action_pressed("g_block")
 	_g.intent_revive = Input.is_action_pressed("g_revive")
 	var aim := _g.intent_block or _queued_attack >= 0 or _g.action_lock > 0.0
@@ -68,9 +82,27 @@ func _physics_process(delta: float) -> void:
 	if _buffer_left <= 0.0:
 		_queued_attack = -1
 
+## Вызывается ПЕРЕД тем, как камеру развернули скачком (вход в комнату этажа).
+##
+## Движение строится относительно камеры и повернулось бы вместе с ней.
+## Игрок, пятившийся в дверь с зажатой S, после разворота камеры внутрь
+## новой комнаты пошёл бы той же S обратно в проём - и дальше туда-обратно
+## между комнатами, пока клавиша зажата. Поэтому, пока ввод не меняется,
+## движение идёт в прежнем кадре; отпустил или сменил клавиши - кадр снова
+## камерный. Так делают игры со сменой ракурса.
+func hold_move_frame() -> void:
+	if _g == null:
+		return
+	var stick := Input.get_vector("g_left", "g_right", "g_forward", "g_back")
+	_holding = stick.length_squared() > 0.001
+	_held_stick = stick
+	_held_yaw = _camera_yaw()
+
+
 func clear_input() -> void:
 	_queued_attack = -1
 	_buffer_left = 0.0
+	_holding = false
 	if not is_instance_valid(_g):
 		return
 	_g.human_movement = false

@@ -87,6 +87,20 @@ func _reset_follow() -> void:
 	_last_frame_usec = Time.get_ticks_usec()
 
 
+## Склейка: камера сразу встаёт за спину цели - угол по её телу, позиция без
+## сглаживания. Нужна, когда цель переставили и развернули скачком (вход в
+## комнату этажа): угол камеры меняет только мышь, и без склейки камера
+## смотрела бы в прежнюю сторону - а движение, построенное от неё, уводило
+## бы бойца туда же.
+func snap_behind_target() -> void:
+	if _target == null or not is_instance_valid(_target):
+		return
+	_reset_follow()
+	# Сразу, а не в следующем _process: PlayerInput в ближайшем кадре физики
+	# берёт направление прицела из базиса камеры.
+	rotation.y = _yaw
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _mouse_captured():
 		_yaw = wrapf(_yaw - event.screen_relative.x * mouse_sensitivity, -PI, PI)

@@ -29,11 +29,20 @@ const DOOR_REACH := 1.6
 ## Запас от точки бойца до края пола, при котором капсула (радиус 0.4) не
 ## задевает стену (половина толщины 0.3 заходит внутрь комнаты).
 const FLOOR_CLEARANCE := 0.7
+## Насколько вперёд бойца и камеры обязаны смотреть внутрь комнаты после
+## входа: косинус угла, 0.7 - это примерно 45 градусов.
+const FACING_MIN_DOT := 0.7
 
 var r := TestReport.new("GameFloor")
 var game: Node3D
 var arena: Arena
+var _cam: Camera3D
 var _walk := Vector3.ZERO
+## Куда смотрит игрок во время ходьбы; ноль - туда же, куда идёт.
+var _face := Vector3.ZERO
+## Остановить ходьбу в самый момент перехода: так ведёт себя игрок, который
+## отпустил клавиши, едва оказавшись в новой комнате.
+var _stop_on_entry := false
 var _entries: Array[Dictionary] = []
 ## Массив, а не int: лямбда захватывает локальные по значению (см.
 ## check_arena_encounter.gd), массив же - по ссылке.
@@ -52,6 +61,7 @@ func _ready() -> void:
 	game.set("run_seed", RUN_SEED)
 	add_child(game)
 	arena = game.get("arena")
+	_cam = game.get_node("CameraRig/Camera3D") as Camera3D
 	game.connect("room_entered", _on_room_entered)
 	arena.encounter_cleared.connect(func() -> void: _cleared_signals[0] += 1)
 
@@ -70,7 +80,8 @@ func _physics_process(_delta: float) -> void:
 	var g := arena.gladiator
 	g.human_movement = true
 	g.intent_move_world = _walk
-	g.intent_facing_yaw = atan2(-_walk.x, -_walk.z)
+	var face := _face if _face != Vector3.ZERO else _walk
+	g.intent_facing_yaw = atan2(-face.x, -face.z)
 
 
 # ------------------------------------------------------------------
@@ -190,6 +201,7 @@ func _run_checks() -> void:
 			_check_doors_expected(false, "повторный вход")
 			_check_door_sync("повторный вход")
 
+	await _check_backward_entry(fl)
 	await _check_empty_encounter(run, fl, plan)
 	_check_no_quick_bounce()
 	await _check_entry_spots_all_shapes()
@@ -301,6 +313,64 @@ func _fight_room(e: Dictionary, cell: Vector2i, entry_side: int, label: String,
 	_check_door_sync(label + ": после зачистки")
 
 
+## Вход спиной: игрок пятится в проём, глядя назад, в комнату, которую
+## покидает, - так отходят, прикрываясь щитом. До перехода и тело, и камера
+## смотрят прочь от двери. После перехода оба обязаны смотреть внутрь новой
+## комнаты: позиция телепортируется, а поворот тела лишь догоняет намерение,
+## и без явного разворота игрок остался бы лицом к решётке за спиной.
+##
+## Обычный проход через дверь этого не ловит: там игрок идёт лицом вперёд, и
+## направление ходьбы через дверь совпадает с направлением внутрь.
+func _check_backward_entry(fl: DungeonFloor) -> void:
+	var room := _current_room()
+	var sides: Array = room.open_sides()
+	sides.sort()
+	r.check(not sides.is_empty(), "вход спиной: у текущей комнаты есть открытая дверь")
+	if sides.is_empty():
+		return
+	# Предпочтительно - в стартовую: там нет боя, который сбил бы сценарий.
+	var side: int = sides[0]
+	for s in sides:
+		if fl.current_cell + FloorPlan.SIDE_OFFSETS[s] == FloorPlan.START_CELL:
+			side = s
+	var dir := DungeonRoom.side_direction(side)
+	var g := arena.gladiator
+	_teleport_player(room.door_position(side) - dir * 4.0, room)
+	var away := atan2(dir.x, dir.z)   # вперёд = -dir, прочь от двери
+	g.global_rotation.y = away
+	g.intent_facing_yaw = away
+	# Камера тоже смотрит назад: игрок глядит на комнату, от которой отходит.
+	game.get_node("CameraRig").call("snap_behind_target")
+	await _frames(2)
+	r.ge(_flat_forward(g).dot(-dir), 0.9, "вход спиной: до перехода игрок смотрит прочь от двери")
+	r.ge(_camera_forward().dot(-dir), 0.9, "вход спиной: до перехода камера смотрит прочь от двери")
+
+	var before := _entries.size()
+	_face = -dir
+	_walk = dir
+	_stop_on_entry = true
+	var n := 0
+	while n < WALK_FRAMES and _entries.size() == before:
+		await get_tree().physics_frame
+		n += 1
+	_stop_on_entry = false
+	_stop()
+	await _frames(10)
+	var made := _entries.size() - before
+	r.eq(made, 1, "вход спиной: ровно один переход")
+	if made < 1:
+		_recover_to_start()
+		await _frames(5)
+		return
+	var e: Dictionary = _entries[before]
+	_check_entry(e, fl.current_cell, int(e["from"]), "вход спиной")
+	var inward := -DungeonRoom.side_direction(int(e["from"]))
+	r.ge(_flat_forward(g).dot(inward), FACING_MIN_DOT,
+		"вход спиной: через 10 кадров тело игрока смотрит в комнату")
+	r.ge(_camera_forward().dot(inward), FACING_MIN_DOT,
+		"вход спиной: через 10 кадров камера смотрит в комнату")
+
+
 ## Дополнение 1: набор, из которого не заспавнился никто (пул исчерпан), не
 ## должен запирать комнату и обязан засчитать её зачищенной.
 func _check_empty_encounter(run: RunState, fl: DungeonFloor, plan: FloorPlan) -> void:
@@ -407,11 +477,16 @@ func _on_room_entered(cell: Vector2i, from_side: int) -> void:
 		"room": fl.current_room(),
 		"player": arena.gladiator.global_position,
 		"ally": ally.global_position if ally != null else Vector3.INF,
+		"player_fwd": _flat_forward(arena.gladiator),
+		"ally_fwd": _flat_forward(ally) if ally != null else Vector3.ZERO,
 		"player_health": arena.gladiator.health,
 		"ally_downed": ally != null and ally.is_downed(),
 		"zombies": zs,
 		"entry": game.get("_entry_point"),
 	})
+	if _stop_on_entry:
+		_face = Vector3.ZERO
+		_stop()
 
 
 ## Ведёт игрока в проём стороны side текущей комнаты кадрами физики. Возвращает
@@ -437,7 +512,16 @@ func _walk_through(side: int, label: String) -> Dictionary:
 	r.eq(made, 1, label + ": ровно один переход")
 	if made < 1:
 		return {}
-	return _entries[before]
+	var e: Dictionary = _entries[before]
+	if int(e["from"]) >= 0:
+		# Камеру поворачивает только мышь, а в headless её нет: без разворота
+		# при входе камера так и смотрела бы туда, куда при старте этажа.
+		var inward := -DungeonRoom.side_direction(int(e["from"]))
+		r.ge(_flat_forward(arena.gladiator).dot(inward), FACING_MIN_DOT,
+			label + ": спустя кадры тело игрока смотрит в комнату")
+		r.ge(_camera_forward().dot(inward), FACING_MIN_DOT,
+			label + ": спустя кадры камера смотрит в комнату")
+	return e
 
 
 func _check_entry(e: Dictionary, cell: Vector2i, from_side: int, label: String) -> void:
@@ -466,6 +550,14 @@ func _check_entry(e: Dictionary, cell: Vector2i, from_side: int, label: String) 
 			if q == Vector3.INF:
 				continue
 			r.ge(_flat_distance(q, door), DOOR_REACH + 0.5, label + ": боец в стороне от порога, м")
+		# В кадре входа, а не спустя время: у напарника дальше поворотом
+		# управляет политика, и развернуть его обязан сам вход.
+		var inward := -DungeonRoom.side_direction(from_side)
+		var pf: Vector3 = e["player_fwd"]
+		r.ge(pf.dot(inward), FACING_MIN_DOT, label + ": игрок сразу развёрнут в комнату")
+		if a != Vector3.INF:
+			var af: Vector3 = e["ally_fwd"]
+			r.ge(af.dot(inward), FACING_MIN_DOT, label + ": напарник сразу развёрнут в комнату")
 
 
 func _expected_state(planned: int, fight: bool) -> int:
@@ -564,3 +656,14 @@ func _nearest_zombie(e: Dictionary) -> float:
 
 func _flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+## Вперёд по горизонтали, единичный вектор.
+func _flat_forward(n: Node3D) -> Vector3:
+	var f := -n.global_basis.z
+	f.y = 0.0
+	return f.normalized()
+
+
+func _camera_forward() -> Vector3:
+	return _flat_forward(_cam) if _cam != null else Vector3.ZERO
