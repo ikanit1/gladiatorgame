@@ -15,7 +15,10 @@ extends Node
 ## user://settings.cfg проверка НЕ пишет: кооператив и сложность выставляются
 ## только в памяти автозагрузки, save_settings() не зовётся.
 
-const RUN_SEED := 1312026
+## Сид подобран поиском по FloorPlan.generate: у стартовой комнаты четыре
+## двери - две в бой, одна в сокровищницу и треснувшая стена в секретку,
+## открытая в срезе 1. Так проверяются все виды доступных дверей сразу.
+const RUN_SEED := 14
 ## Сколько кадров физики даём на подход к двери: 4 м при скорости 5 м/с - это
 ## меньше секунды, запас на разгон и на заминку от удара.
 const WALK_FRAMES := 300
@@ -23,6 +26,9 @@ const MIN_SPAWN_DISTANCE := 6.0
 ## GameScreen.DOOR_REACH - дублируем числом, а не читаем константу: константу
 ## проверяемого кода проверка обязана подтверждать, а не брать на веру.
 const DOOR_REACH := 1.6
+## Запас от точки бойца до края пола, при котором капсула (радиус 0.4) не
+## задевает стену (половина толщины 0.3 заходит внутрь комнаты).
+const FLOOR_CLEARANCE := 0.7
 
 var r := TestReport.new("GameFloor")
 var game: Node3D
@@ -186,6 +192,7 @@ func _run_checks() -> void:
 
 	await _check_empty_encounter(run, fl, plan)
 	_check_no_quick_bounce()
+	await _check_entry_spots_all_shapes()
 
 	r.finish(get_tree())
 
@@ -334,6 +341,47 @@ func _check_empty_encounter(run: RunState, fl: DungeonFloor, plan: FloorPlan) ->
 	arena._pool = saved
 
 
+## Точки входа у КАЖДОГО контура и каждой стороны: на полу с запасом под
+## капсулу и стену, поперёк стороны входа, в стороне от порога. Проход по
+## этажу видит только контуры своего сида - именно так Г-образная стартовая
+## комната на входе с севера и запада и уходила в аварийную расстановку.
+func _check_entry_spots_all_shapes() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var all_doors := {
+		0: FloorPlan.DoorState.OPEN, 1: FloorPlan.DoorState.OPEN,
+		2: FloorPlan.DoorState.OPEN, 3: FloorPlan.DoorState.OPEN,
+	}
+	for shape in RoomGenerator.SHAPES:
+		var cfg := RoomGenerator.geometry(rng)
+		cfg["shape"] = shape
+		var room := DungeonRoom.new()
+		add_child(room)
+		room.setup(cfg, Vector3(-400.0, 0.0, -400.0), all_doors, false)
+		for side in [-1, 0, 1, 2, 3]:
+			var label := "точки входа: %s, сторона %d" % [shape, side]
+			var spots: Array = game.call("_entry_spots", room, side)
+			r.eq(spots.size(), 2, label + ": две точки")
+			if spots.size() != 2:
+				continue
+			var a: Vector3 = spots[0]
+			var b: Vector3 = spots[1]
+			r.check(room.has_floor_at(a, FLOOR_CLEARANCE) and room.has_floor_at(b, FLOOR_CLEARANCE),
+				label + ": обе на полу, не в стене")
+			var sep := b - a
+			sep.y = 0.0
+			r.ge(sep.length(), 1.0, label + ": бойцы не друг в друге, м")
+			if side < 0:
+				continue
+			r.in_range(absf(sep.normalized().dot(DungeonRoom.side_direction(side))), 0.0, 0.05,
+				label + ": поперёк стороны входа")
+			var door := room.door_position(side)
+			r.ge(minf(_flat_distance(a, door), _flat_distance(b, door)), DOOR_REACH + 0.5,
+				label + ": в стороне от порога, м")
+		room.queue_free()
+	await _frames(1)
+
+
 ## Нигде не было двух переходов в соседних кадрах - мгновенный возврат через
 ## ту же дверь выглядел бы именно так.
 func _check_no_quick_bounce() -> void:
@@ -400,11 +448,11 @@ func _check_entry(e: Dictionary, cell: Vector2i, from_side: int, label: String) 
 		r.check(false, label + ": комната перехода существует")
 		return
 	var p: Vector3 = e["player"]
-	r.check(room.has_floor_at(p, 0.4), label + ": игрок приземлился на пол комнаты")
+	r.check(room.has_floor_at(p, FLOOR_CLEARANCE), label + ": игрок приземлился на пол, не в стену")
 	r.in_range(p.y - room.global_position.y, -0.05, 0.3, label + ": игрок на высоте пола")
 	var a: Vector3 = e["ally"]
 	if a != Vector3.INF:
-		r.check(room.has_floor_at(a, 0.4), label + ": напарник приземлился на пол комнаты")
+		r.check(room.has_floor_at(a, FLOOR_CLEARANCE), label + ": напарник приземлился на пол, не в стену")
 		var sep := a - p
 		sep.y = 0.0
 		r.ge(sep.length(), 1.0, label + ": бойцы не друг в друге, м")

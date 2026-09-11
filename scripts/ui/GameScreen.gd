@@ -589,14 +589,20 @@ func _entry_spots(room: DungeonRoom, from_side: int) -> Array[Vector3]:
 		depths = [ENTRY_DEPTH, ENTRY_DEPTH + 1.0, ENTRY_DEPTH + 2.0, ENTRY_DEPTH + 3.0]
 
 	var spacings: Array[float] = [ENTRY_SPACING, 1.1]
+	# Пару сдвигаем и вдоль стены. У Г-образной комнаты на входе с севера и
+	# запада пол есть только по одну сторону от проёма: симметричная пара
+	# там не помещается ни на какой глубине, и без сдвига один боец вставал
+	# бы в стену.
+	var shifts: Array[float] = [0.0, 0.75, -0.75, 1.5, -1.5, 2.25, -2.25]
 	for depth in depths:
-		var center := base + inward * depth
-		for spacing in spacings:
-			var a := center - tangent * (spacing * 0.5)
-			var b := center + tangent * (spacing * 0.5)
-			if room.has_floor_at(a, ENTRY_CLEARANCE) and room.has_floor_at(b, ENTRY_CLEARANCE):
-				var spots: Array[Vector3] = [a, b]
-				return spots
+		for shift in shifts:
+			var center := base + inward * depth + tangent * shift
+			for spacing in spacings:
+				var a := center - tangent * (spacing * 0.5)
+				var b := center + tangent * (spacing * 0.5)
+				if room.has_floor_at(a, ENTRY_CLEARANCE) and room.has_floor_at(b, ENTRY_CLEARANCE):
+					var spots: Array[Vector3] = [a, b]
+					return spots
 
 	# Не должно случаться: средние линии комнаты есть у любого контура
 	# (RoomGenerator.cells_for). Но молча ставить бойцов в стену нельзя.
