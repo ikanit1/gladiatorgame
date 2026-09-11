@@ -35,9 +35,42 @@ const LIST := [
 ]
 
 
-## Три случайных различных улучшения.
+## Редкий пул: из запертых сундуков и сундука босса.
+##
+## Строго из УЖЕ существующих полей Gladiator. Новое поле означало бы новое
+## наблюдение или новое действие, а политика напарника обучена на фиксированном
+## векторе - она этого не переживёт. Поэтому здесь нет ни «двойного удара»,
+## ни метательного оружия: это поведение, а не параметр.
+const RARE := [
+	{"id": "wide_swing", "name": "Широкий замах",
+		"desc": "Меч задевает на 2 противника больше"},
+	{"id": "long_arc", "name": "Размах",
+		"desc": "+40° к дуге меча"},
+	{"id": "read_attack", "name": "Чтение удара",
+		"desc": "+0.3 с к окну парирования"},
+	{"id": "tough_guard", "name": "Непробиваемый",
+		"desc": "Щит вдвое дешевле гасит удар"},
+	{"id": "fast_hands", "name": "Быстрые руки",
+		"desc": "Анимация атаки на 30% быстрее"},
+	{"id": "great_vigor", "name": "Бычье сердце",
+		"desc": "+60 к максимуму здоровья, лечит на столько же"},
+	{"id": "heavy_boot", "name": "Таранный пинок",
+		"desc": "Пинок отбрасывает вдвое сильнее"},
+]
+
+
+## Несколько случайных различных улучшений из обычного пула.
 static func roll(rng: RandomNumberGenerator, count: int = 3) -> Array:
-	var pool := LIST.duplicate()
+	return _roll_from(LIST, rng, count)
+
+
+## То же из редкого пула: запертые сундуки и сундук босса.
+static func roll_rare(rng: RandomNumberGenerator, count: int = 3) -> Array:
+	return _roll_from(RARE, rng, count)
+
+
+static func _roll_from(source: Array, rng: RandomNumberGenerator, count: int) -> Array:
+	var pool := source.duplicate()
 	var out: Array = []
 	for i in mini(count, pool.size()):
 		var idx := rng.randi_range(0, pool.size() - 1)
@@ -47,7 +80,7 @@ static func roll(rng: RandomNumberGenerator, count: int = 3) -> Array:
 
 
 static func find(id: String) -> Dictionary:
-	for u in LIST:
+	for u in LIST + RARE:
 		if u["id"] == id:
 			return u
 	return {}
@@ -80,6 +113,21 @@ static func apply(id: String, fighters: Array, arena: Arena) -> void:
 				f.kick_stun_time += 1.2
 			"reach":
 				f.sword_range += 0.4
+			"wide_swing":
+				f.sword_max_targets += 2
+			"long_arc":
+				f.sword_arc_deg += 40.0
+			"read_attack":
+				f.parry_window += 0.3
+			"tough_guard":
+				f.block_stamina_hit_cost = maxf(2.0, f.block_stamina_hit_cost * 0.5)
+			"fast_hands":
+				f.attack_playback_speed = minf(4.0, f.attack_playback_speed * 1.3)
+			"great_vigor":
+				f.max_health += 60.0
+				f.health = minf(f.max_health, f.health + 60.0)
+			"heavy_boot":
+				f.kick_knockback *= 2.0
 
 	if arena == null:
 		return
