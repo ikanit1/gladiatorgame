@@ -22,9 +22,9 @@ func _ready() -> void:
 		floor_node.setup(plan, false)
 
 		# Шаг сетки обязан совпадать с габаритом комнаты
-		var c0 := floor_node.world_center_of(Vector2i(0, 0))
-		var cx := floor_node.world_center_of(Vector2i(1, 0))
-		var cz := floor_node.world_center_of(Vector2i(0, 1))
+		var c0 := floor_node.local_center_of(Vector2i(0, 0))
+		var cx := floor_node.local_center_of(Vector2i(1, 0))
+		var cz := floor_node.local_center_of(Vector2i(0, 1))
 		r.in_range(cx.x - c0.x, RoomGenerator.ROOM_WIDTH, RoomGenerator.ROOM_WIDTH,
 			"шаг сетки по x равен ширине комнаты")
 		r.in_range(cz.z - c0.z, RoomGenerator.ROOM_DEPTH, RoomGenerator.ROOM_DEPTH,
@@ -86,6 +86,24 @@ func _ready() -> void:
 			r.check(not seen.has(cell), "room_built не дублируется для %s" % cell)
 			seen[cell] = true
 
+		# --- Конец дополнения ---
+
+		# --- Дополнение: правка 1 ревью задачи 7 - защита от повторного setup ---
+		# floor_node уже кое-что построил через enter_cell выше (старт и его
+		# соседи по дверям). Второй setup() с ДРУГИМ планом обязан быть
+		# отклонён целиком: дерево не должно прирасти новыми узлами, plan не
+		# должен подмениться на новый объект, а уже построенная стартовая
+		# комната обязана остаться доступной через built_room. push_error в
+		# выводе прогона на этом месте ожидаем - это сообщение из самого
+		# DungeonFloor.setup(), а не признак поломки проверки.
+		var children_before_second_setup := floor_node.get_child_count()
+		var other_plan := FloorPlan.generate(plan.floor_number + 1, rng)
+		floor_node.setup(other_plan, false)
+		r.eq(floor_node.get_child_count(), children_before_second_setup,
+			"повторный setup() не добавляет новых узлов этажа")
+		r.check(floor_node.plan == plan, "повторный setup() не подменяет plan")
+		r.check(floor_node.built_room(FloorPlan.START_CELL) == start_room,
+			"повторный setup() не теряет уже построенную стартовую комнату")
 		# --- Конец дополнения ---
 
 		# Строим все комнаты и сверяем двери соседей
